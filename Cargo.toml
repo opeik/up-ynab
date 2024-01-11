@@ -1,0 +1,13 @@
+[package]
+name = "up-ynab"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = { version = "0.4.31", features = ["serde"] }
+color-eyre = "0.6"
+reqwest = { version = "0.11", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+url = { version = "2.5.0", features = ["serde"] }
