@@ -13,7 +13,8 @@ use figment::{
     Figment,
 };
 use futures::{future, StreamExt, TryStreamExt};
-use tracing::{debug, info};
+use itertools::Itertools;
+use tracing::{debug, error, info};
 
 use crate::{
     cli::{Cli, Commands},
@@ -117,20 +118,19 @@ async fn sync(config: &Config) -> Result<()> {
     let mut up_transactions = up_client
         .transactions()
         .map_ok(|x| convert::to_ynab_transaction(&x, config))
-        .try_filter(|x| future::ready(x.as_ref().map(|x| x.is_some()).unwrap_or(false)))
         .chunks(100);
 
     while let Some(chunk) = up_transactions.next().await {
-        let chunk = chunk
-            .into_iter()
-            .flatten()
-            .flatten()
-            .flatten()
-            .collect::<Vec<_>>();
+        let (oks, errs): (Vec<_>, Vec<_>) = chunk.into_iter().partition_result();
+        let oks = oks.into_iter().flatten().flatten().collect::<Vec<_>>();
+
+        for e in errs {
+            error!("failed to get transaction: {e}");
+        }
 
         info!("creating ynab transactions...");
         let response = ynab_client
-            .new_transactions(&config.ynab.budget_id, chunk.as_slice())
+            .new_transactions(&config.ynab.budget_id, oks.as_slice())
             .await?;
         debug!("{response:#?}");
     }

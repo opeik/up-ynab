@@ -1,5 +1,6 @@
 use chrono::DateTime;
 use color_eyre::eyre::Result;
+use tracing::debug;
 use up::models::TransactionResource;
 use ynab::models::{SaveTransaction, TransactionClearedStatus};
 
@@ -21,13 +22,13 @@ pub fn to_ynab_transaction(
 
     // Up needs two transactions to transfer money between accounts (except for Round Ups?).
     // Since YNAB can do it in one, skip all "to" transactions.
-
-    // let description = value.attributes.description.as_str();
-    // if account.is_some()
-    //     && (description.contains("Transfer to") || description.contains("Forward to"))
-    // {
-    //     return Ok(None);
-    // }
+    let description = value.attributes.description.as_str();
+    if account.is_some()
+        && (description.contains("Transfer to") || description.contains("Forward to"))
+    {
+        debug!("skipped: {value:?}");
+        return Ok(None);
+    }
 
     let ynab_transaction = if let Some(account) = account {
         SaveTransaction {
