@@ -12,7 +12,6 @@ pub struct Cli {
 }
 
 #[derive(clap::Subcommand)]
-#[command(rename_all = "snake_case")]
 pub enum Commands {
     /// Fetches all Up accounts.
     GetUpAccounts,

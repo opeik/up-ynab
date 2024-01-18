@@ -22,10 +22,7 @@ pub fn to_ynab_transaction(
 
     // Up needs two transactions to transfer money between accounts (except for Round Ups?).
     // Since YNAB can do it in one, skip all "to" transactions.
-    let description = value.attributes.description.as_str();
-    if account.is_some()
-        && (description.contains("Transfer to") || description.contains("Forward to"))
-    {
+    if account.is_some() && value.attributes.amount.value_in_base_units <= 0 {
         debug!("skipped: {value:?}");
         return Ok(None);
     }

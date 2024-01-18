@@ -129,10 +129,10 @@ async fn sync(config: &Config) -> Result<()> {
         }
 
         info!("creating ynab transactions...");
-        let response = ynab_client
+        let _response = ynab_client
             .new_transactions(&config.ynab.budget_id, oks.as_slice())
             .await?;
-        debug!("{response:#?}");
+        // debug!("{response:#?}");
     }
 
     Ok(())
