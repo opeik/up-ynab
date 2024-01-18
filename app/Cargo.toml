@@ -1,0 +1,29 @@
+[package]
+name = "up_ynab"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+up = { path = "../up" }
+ynab = { path = "../ynab" }
+
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.4.18", features = ["derive"] }
+color-eyre = "0.6"
+derive_builder = "0.12"
+figment = { version = "0.10", features = ["env", "toml"] }
+futures = "0.3"
+iso_currency = { version = "0.4", features = ["with-serde"] }
+itertools = "0.12.0"
+lazy_static = "1.4"
+nutype = { version = "0.4", features = ["serde", "regex"] }
+regex = "1.10"
+reqwest = { version = "0.11", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-error = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = { version = "2.5", features = ["serde"] }
+uuid = "1.6"

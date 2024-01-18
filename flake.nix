@@ -30,6 +30,8 @@
               self.formatter.${system}
               _1password
               darwin.apple_sdk.frameworks.SystemConfiguration
+              pkg-config
+              openssl.dev
               (rust-bin.nightly.latest.default.override {
                 extensions = ["rust-src"];
               })

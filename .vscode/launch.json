@@ -7,15 +7,15 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'up-ynab'",
+            "name": "Debug executable 'up_ynab'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=up-ynab",
-                    "--package=up-ynab"
+                    "--bin=up_ynab",
+                    "--package=up_ynab"
                 ],
                 "filter": {
-                    "name": "up-ynab",
+                    "name": "up_ynab",
                     "kind": "bin"
                 }
             },
@@ -25,17 +25,55 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'up-ynab'",
+            "name": "Debug unit tests in executable 'up_ynab'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=up-ynab",
-                    "--package=up-ynab"
+                    "--bin=up_ynab",
+                    "--package=up_ynab"
                 ],
                 "filter": {
-                    "name": "up-ynab",
+                    "name": "up_ynab",
                     "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'up'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=up"
+                ],
+                "filter": {
+                    "name": "up",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'ynab'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=ynab"
+                ],
+                "filter": {
+                    "name": "ynab",
+                    "kind": "lib"
                 }
             },
             "args": [],
