@@ -570,9 +570,9 @@ mod tests {
             transaction,
             SaveTransaction {
                 account_id: Some(spending_account().ynab_id),
-                date: Some("2023-12-28T11:49:40+00:00".to_string()),
-                amount: Some(-13000),
-                payee_name: Some(Some("Amazon".to_string())),
+                date: Some("2023-12-02T02:44:15+00:00".to_string()),
+                amount: Some(-57_840),
+                payee_name: Some(Some("7-Eleven".to_string())),
                 cleared: Some(TransactionClearedStatus::Cleared),
                 payee_id: None,
                 category_id: None,
