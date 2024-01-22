@@ -108,7 +108,7 @@ impl Transaction {
         let mut transaction = NewYnabTransaction {
             date: Some(self.time.to_rfc3339()),
             amount: Some(amount),
-            memo: Some(self.msg.clone()),
+            memo: self.msg.clone().map(Some),
             cleared: Some(TransactionClearedStatus::Cleared),
             account_id: None,
             payee_id: None,
@@ -175,24 +175,30 @@ mod tests {
     use color_eyre::eyre::Result;
     use money2::{Currency, Money};
     use uuid::Uuid;
+    use ynab_client::models::{SaveTransaction, TransactionClearedStatus};
 
     use super::{Account, Kind, Transaction, UpTransaction};
 
+    fn spending_account() -> Account {
+        Account {
+            name: "Spending".to_owned(),
+            up_id: "2be1c9de-7a89-4e8f-8077-f535150b588d".to_owned(),
+            ynab_id: Uuid::from_str("f6ca888b-327a-45d0-9775-830abdaa3a04").unwrap(),
+            ynab_transfer_id: Uuid::from_str("89ddd9ef-2510-4b42-a889-e7a68cae291c").unwrap(),
+        }
+    }
+
+    fn home_account() -> Account {
+        Account {
+            name: "Home".to_owned(),
+            up_id: "328160b1-d7bc-41ee-9d7b-c7da4f2484b0".to_owned(),
+            ynab_id: Uuid::from_str("2b00a77e-9b3c-4277-9c6c-6944f7696705").unwrap(),
+            ynab_transfer_id: Uuid::from_str("f9b0b92f-70f7-4015-b885-4e5807a78a44").unwrap(),
+        }
+    }
+
     fn accounts() -> Vec<Account> {
-        Vec::from([
-            Account {
-                name: "Spending".to_owned(),
-                up_id: "2be1c9de-7a89-4e8f-8077-f535150b588d".to_owned(),
-                ynab_id: Uuid::from_str("f6ca888b-327a-45d0-9775-830abdaa3a04").unwrap(),
-                ynab_transfer_id: Uuid::from_str("89ddd9ef-2510-4b42-a889-e7a68cae291c").unwrap(),
-            },
-            Account {
-                name: "Home".to_owned(),
-                up_id: "328160b1-d7bc-41ee-9d7b-c7da4f2484b0".to_owned(),
-                ynab_id: Uuid::from_str("2b00a77e-9b3c-4277-9c6c-6944f7696705").unwrap(),
-                ynab_transfer_id: Uuid::from_str("f9b0b92f-70f7-4015-b885-4e5807a78a44").unwrap(),
-            },
-        ])
+        Vec::from([home_account(), spending_account()])
     }
 
     #[test]
@@ -282,7 +288,7 @@ mod tests {
                     .with_timezone(&Utc),
                 amount: Money::new(-57_84, 2, Currency::Aud),
                 kind: Kind::Expense {
-                    to: accounts[0].clone(),
+                    to: spending_account(),
                     from_name: "7-Eleven".to_string(),
                 },
                 msg: None,
@@ -361,7 +367,7 @@ mod tests {
                     .with_timezone(&Utc),
                 amount: Money::new(10_95, 2, Currency::Aud),
                 kind: Kind::Expense {
-                    to: accounts[0].clone(),
+                    to: spending_account(),
                     from_name: "Z KIDD-SMITH".to_string(),
                 },
                 msg: Some("pizza".to_string()),
@@ -444,8 +450,8 @@ mod tests {
                     .with_timezone(&Utc),
                 amount: Money::new(37_94, 2, Currency::Aud),
                 kind: Kind::Transfer {
-                    to: accounts[0].clone(),
-                    from: accounts[1].clone()
+                    to: spending_account(),
+                    from: home_account()
                 },
                 msg: Some("Transfer from Home".to_string()),
             }
@@ -538,10 +544,45 @@ mod tests {
                     .with_timezone(&Utc),
                 amount: Money::new(-13_00, 2, Currency::Aud),
                 kind: Kind::Expense {
-                    to: accounts[0].clone(),
+                    to: spending_account(),
                     from_name: "Amazon".to_string()
                 },
                 msg: None,
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn to_ynab() -> Result<()> {
+        let accounts = accounts();
+        let transaction = Transaction {
+            time: DateTime::parse_from_rfc3339("2023-12-28T22:49:40+11:00")?.with_timezone(&Utc),
+            amount: Money::new(-13_00, 2, Currency::Aud),
+            kind: Kind::Expense {
+                to: spending_account(),
+                from_name: "Amazon".to_string(),
+            },
+            msg: None,
+        }
+        .to_ynab()?;
+
+        assert_eq!(
+            transaction,
+            SaveTransaction {
+                account_id: Some(spending_account().ynab_id),
+                date: Some("2023-12-28T11:49:40+00:00".to_string()),
+                amount: Some(-13000),
+                payee_name: Some(Some("Amazon".to_string())),
+                cleared: Some(TransactionClearedStatus::Cleared),
+                payee_id: None,
+                category_id: None,
+                memo: None,
+                approved: None,
+                flag_color: None,
+                import_id: None,
+                subtransactions: None,
             }
         );
 

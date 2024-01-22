@@ -92,6 +92,7 @@ async fn get_ynab_transactions(config: &Config, from: Option<DateTime<Utc>>) -> 
     let transactions = ynab_client
         .transactions(&config.ynab.budget_id, from)
         .await?;
+
     // .map(|transactions| {
     //     transactions
     //         .data
