@@ -1,5 +1,6 @@
+use chrono::{DateTime, Utc};
 use color_eyre::eyre::{Context, Result};
-use ynab::{
+use ynab_client::{
     apis::{
         accounts_api::GetAccountsParams,
         budgets_api::GetBudgetsParams,
@@ -29,7 +30,7 @@ impl Client {
     }
 
     pub async fn accounts(&self, budget_id: &str) -> Result<AccountsResponse> {
-        ynab::apis::accounts_api::get_accounts(
+        ynab_client::apis::accounts_api::get_accounts(
             &self.config,
             GetAccountsParams {
                 budget_id: budget_id.to_owned(),
@@ -41,7 +42,7 @@ impl Client {
     }
 
     pub async fn budgets(&self) -> Result<BudgetSummaryResponse> {
-        ynab::apis::budgets_api::get_budgets(
+        ynab_client::apis::budgets_api::get_budgets(
             &self.config,
             GetBudgetsParams {
                 include_accounts: None,
@@ -51,12 +52,16 @@ impl Client {
         .wrap_err("failed to get budgets")
     }
 
-    pub async fn transactions(&self, budget_id: &str) -> Result<TransactionsResponse> {
-        ynab::apis::transactions_api::get_transactions(
+    pub async fn transactions(
+        &self,
+        budget_id: &str,
+        from: Option<DateTime<Utc>>,
+    ) -> Result<TransactionsResponse> {
+        ynab_client::apis::transactions_api::get_transactions(
             &self.config,
             GetTransactionsParams {
                 budget_id: budget_id.to_owned(),
-                since_date: None,
+                since_date: from.map(|x| x.to_rfc3339()),
                 r#type: None,
                 last_knowledge_of_server: None,
             },
@@ -70,7 +75,7 @@ impl Client {
         budget_id: &str,
         transactions: &[SaveTransaction],
     ) -> Result<SaveTransactionsResponse> {
-        ynab::apis::transactions_api::create_transaction(
+        ynab_client::apis::transactions_api::create_transaction(
             &self.config,
             CreateTransactionParams {
                 budget_id: budget_id.to_owned(),
@@ -89,7 +94,7 @@ impl Client {
         budget_id: &str,
         transaction_id: &str,
     ) -> Result<TransactionResponse> {
-        ynab::apis::transactions_api::delete_transaction(
+        ynab_client::apis::transactions_api::delete_transaction(
             &self.config,
             DeleteTransactionParams {
                 budget_id: budget_id.to_owned(),

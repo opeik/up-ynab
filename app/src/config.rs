@@ -1,5 +1,7 @@
 use uuid::Uuid;
 
+use crate::Account;
+
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct Up {
     pub api_token: String,
@@ -10,14 +12,6 @@ pub struct Ynab {
     pub api_token: String,
     pub budget_id: String,
     pub account_id: Uuid,
-}
-
-#[derive(Clone, Debug, serde::Deserialize)]
-pub struct Account {
-    pub name: String,
-    pub up_id: String,
-    pub ynab_id: Uuid,
-    pub ynab_transfer_id: Uuid,
 }
 
 #[derive(Clone, Debug, serde::Deserialize)]

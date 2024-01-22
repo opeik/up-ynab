@@ -1,20 +1,17 @@
-pub mod cli;
-pub mod config;
-pub mod convert;
-pub mod up;
-pub mod ynab;
-
 use std::path::PathBuf;
 
+use chrono::{DateTime, Utc};
 use clap::Parser;
-use color_eyre::eyre::{eyre, Result};
+use color_eyre::eyre::Result;
 use figment::{
     providers::{Format, Toml},
     Figment,
 };
-use futures::{future, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt};
 use itertools::Itertools;
-use tracing::{debug, error, info};
+use tracing::{error, info};
+use up_client::apis::transactions_api::TransactionsGetParams;
+use up_ynab::*;
 
 use crate::{
     cli::{Cli, Commands},
@@ -35,11 +32,13 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::GetUpAccounts => get_up_accounts(&config).await?,
-        Commands::GetUpTransactions => get_up_transactions(&config).await?,
+        Commands::GetUpTransactions { from, until } => {
+            get_up_transactions(&config, from, until).await?
+        }
         Commands::GetYnabAccounts => get_ynab_accounts(&config).await?,
         Commands::GetYnabBudgets => get_ynab_budgets(&config).await?,
-        Commands::GetYnabTransactions => get_ynab_transactions(&config).await?,
-        Commands::Sync => sync(&config).await?,
+        Commands::GetYnabTransactions { from } => get_ynab_transactions(&config, from).await?,
+        Commands::Sync { from, until } => sync(&config, from, until).await?,
     }
 
     Ok(())
@@ -49,7 +48,7 @@ async fn get_up_accounts(config: &Config) -> Result<()> {
     let up_client = up::Client::new(&config.up.api_token);
 
     info!("fetching up accounts...");
-    let mut accounts = up_client.accounts();
+    let mut accounts = up_client.accounts(None);
     while let Some(account) = accounts.try_next().await? {
         info!("{}: {}", account.id, account.attributes.display_name);
     }
@@ -57,25 +56,53 @@ async fn get_up_accounts(config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn get_up_transactions(config: &Config) -> Result<()> {
+async fn get_up_transactions(
+    config: &Config,
+    from: Option<DateTime<Utc>>,
+    until: Option<DateTime<Utc>>,
+) -> Result<()> {
     let up_client = up::Client::new(&config.up.api_token);
+    let accounts = config.account.clone().unwrap_or_default();
 
     info!("fetching up transactions...");
-    let mut transactions = up_client.transactions();
-    while let Some(transaction) = transactions.try_next().await? {
-        info!("{transaction:#?}");
+    let mut transactions = up_client.transactions(Some(TransactionsGetParams {
+        page_size: Some(100),
+        filter_since: from.map(|x| x.to_rfc3339()),
+        filter_until: until.map(|x| x.to_rfc3339()),
+        filter_status: None,
+        filter_category: None,
+        filter_tag: None,
+    }));
+    // .map_ok(|x| Transaction::from_up(x, &accounts));
+
+    while let Some(transaction) = transactions.next().await {
+        let transaction = transaction?;
+        let x = serde_json::to_string_pretty(&transaction)?;
+        info!("{x}");
     }
 
     Ok(())
 }
 
-async fn get_ynab_transactions(config: &Config) -> Result<()> {
+async fn get_ynab_transactions(config: &Config, from: Option<DateTime<Utc>>) -> Result<()> {
     let ynab_client = ynab::Client::new(&config.ynab.api_token);
+    let accounts = config.account.clone().unwrap_or_default();
 
     info!("fetching ynab transactions...");
-    let response = ynab_client.transactions(&config.ynab.budget_id).await?;
-    for transaction in response.data.transactions {
-        info!("{transaction:#?}");
+    let transactions = ynab_client
+        .transactions(&config.ynab.budget_id, from)
+        .await?;
+    // .map(|transactions| {
+    //     transactions
+    //         .data
+    //         .transactions
+    //         .into_iter()
+    //         .map(|x| Transaction::from_ynab(x, &accounts))
+    //         .collect::<Result<Vec<_>>>()
+    // })??;
+
+    for transaction in transactions.data.transactions {
+        info!("{transaction:?}");
     }
 
     Ok(())
@@ -102,36 +129,51 @@ async fn get_ynab_budgets(config: &Config) -> Result<()> {
     let ynab_client = ynab::Client::new(&config.ynab.api_token);
 
     info!("fetching ynab budgets...");
-    let repsonse = ynab_client.budgets().await?;
-    for budget in repsonse.data.budgets {
+    let response = ynab_client.budgets().await?;
+    for budget in response.data.budgets {
         info!("{}: {}", budget.id, budget.name);
     }
 
     Ok(())
 }
 
-async fn sync(config: &Config) -> Result<()> {
+async fn sync(
+    config: &Config,
+    from: Option<DateTime<Utc>>,
+    until: Option<DateTime<Utc>>,
+) -> Result<()> {
     let up_client = up::Client::new(&config.up.api_token);
-    let ynab_client = ynab::Client::new(&config.ynab.api_token);
+    let _ynab_client = ynab::Client::new(&config.ynab.api_token);
+    let accounts = config.account.clone().unwrap_or_default();
 
     info!("fetching up transactions...");
-    let mut up_transactions = up_client
-        .transactions()
-        .map_ok(|x| convert::to_ynab_transaction(&x, config))
-        .chunks(100);
+    let args = Some(TransactionsGetParams {
+        page_size: Some(100),
+        filter_since: from.map(|x| x.to_rfc3339()),
+        filter_until: until.map(|x| x.to_rfc3339()),
+        filter_status: None,
+        filter_category: None,
+        filter_tag: None,
+    });
+
+    let mut up_transactions = up_client.transactions(args).chunks(100);
 
     while let Some(chunk) = up_transactions.next().await {
         let (oks, errs): (Vec<_>, Vec<_>) = chunk.into_iter().partition_result();
-        let oks = oks.into_iter().flatten().flatten().collect::<Vec<_>>();
+        let transactions = oks
+            .into_iter()
+            .map(|x| Transaction::from_up(x, &accounts).and_then(|x| x.to_ynab()))
+            .collect::<Result<Vec<_>>>()?;
 
         for e in errs {
             error!("failed to get transaction: {e}");
         }
 
         info!("creating ynab transactions...");
-        let _response = ynab_client
-            .new_transactions(&config.ynab.budget_id, oks.as_slice())
-            .await?;
+        // info!("{transactions:#?}");
+        // let _response = ynab_client
+        //     .new_transactions(&config.ynab.budget_id, oks.as_slice())
+        //     .await?;
         // debug!("{response:#?}");
     }
 
@@ -149,7 +191,7 @@ fn install_tracing() {
 
     tracing_subscriber::registry()
         .with(filter_layer)
-        .with(fmt_layer.with_target(true))
+        .with(fmt_layer)
         .with(ErrorLayer::default())
         .init();
 }

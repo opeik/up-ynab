@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 
+use chrono::{DateTime, Utc};
+
 #[derive(clap::Parser)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
     /// Config file path.
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE")]
     pub config: Option<PathBuf>,
 
     #[command(subcommand)]
@@ -13,16 +15,29 @@ pub struct Cli {
 
 #[derive(clap::Subcommand)]
 pub enum Commands {
-    /// Fetches all Up accounts.
+    /// Fetches Up accounts.
     GetUpAccounts,
-    /// Fetches all Up transactions.
-    GetUpTransactions,
-    /// Fetches all YNAB accounts.
+    /// Fetches Up transactions.
+    GetUpTransactions {
+        #[arg(long)]
+        from: Option<DateTime<Utc>>,
+        #[arg(long)]
+        until: Option<DateTime<Utc>>,
+    },
+    /// Fetches YNAB accounts.
     GetYnabAccounts,
-    /// Fetches all YNAB budgets.
+    /// Fetches YNAB budgets.
     GetYnabBudgets,
-    /// Fetches all YNAB transactions.
-    GetYnabTransactions,
-    /// Syncs all transactions from Up to YNAB.
-    Sync,
+    /// Fetches YNAB transactions.
+    GetYnabTransactions {
+        #[arg(long)]
+        from: Option<DateTime<Utc>>,
+    },
+    /// Syncs transactions from Up to YNAB.
+    Sync {
+        #[arg(long)]
+        from: Option<DateTime<Utc>>,
+        #[arg(long)]
+        until: Option<DateTime<Utc>>,
+    },
 }
