@@ -8,7 +8,6 @@ use std::str::FromStr;
 use chrono::{DateTime, Utc};
 use color_eyre::eyre::{Context, ContextCompat, Result};
 use money2::{Currency, Money};
-use tracing::info;
 use uuid::Uuid;
 use ynab_client::models::TransactionClearedStatus;
 
@@ -555,14 +554,13 @@ mod tests {
     }
 
     #[test]
-    fn to_ynab() -> Result<()> {
-        let accounts = accounts();
+    fn to_ynab_expense() -> Result<()> {
         let transaction = Transaction {
-            time: DateTime::parse_from_rfc3339("2023-12-28T22:49:40+11:00")?.with_timezone(&Utc),
-            amount: Money::new(-13_00, 2, Currency::Aud),
+            time: DateTime::parse_from_rfc3339("2023-12-02T13:44:15+11:00")?.with_timezone(&Utc),
+            amount: Money::new(-57_84, 2, Currency::Aud),
             kind: Kind::Expense {
                 to: spending_account(),
-                from_name: "Amazon".to_string(),
+                from_name: "7-Eleven".to_string(),
             },
             msg: None,
         }
@@ -579,6 +577,40 @@ mod tests {
                 payee_id: None,
                 category_id: None,
                 memo: None,
+                approved: None,
+                flag_color: None,
+                import_id: None,
+                subtransactions: None,
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn to_ynab_transfer() -> Result<()> {
+        let transaction = Transaction {
+            time: DateTime::parse_from_rfc3339("2023-12-07T22:35:56+11:00")?.with_timezone(&Utc),
+            amount: Money::new(37_94, 2, Currency::Aud),
+            kind: Kind::Transfer {
+                to: spending_account(),
+                from: home_account(),
+            },
+            msg: Some("Transfer from Home".to_string()),
+        }
+        .to_ynab()?;
+
+        assert_eq!(
+            transaction,
+            SaveTransaction {
+                account_id: Some(spending_account().ynab_id),
+                date: Some("2023-12-07T11:35:56+00:00".to_string()),
+                amount: Some(37_940),
+                payee_id: Some(Some(home_account().ynab_transfer_id)),
+                cleared: Some(TransactionClearedStatus::Cleared),
+                memo: Some(Some("Transfer from Home".to_string())),
+                payee_name: None,
+                category_id: None,
                 approved: None,
                 flag_color: None,
                 import_id: None,
