@@ -65,20 +65,20 @@ async fn get_up_transactions(
     let accounts = config.account.clone().unwrap_or_default();
 
     info!("fetching up transactions...");
-    let mut transactions = up_client.transactions(Some(TransactionsGetParams {
-        page_size: Some(100),
-        filter_since: from.map(|x| x.to_rfc3339()),
-        filter_until: until.map(|x| x.to_rfc3339()),
-        filter_status: None,
-        filter_category: None,
-        filter_tag: None,
-    }));
-    // .map_ok(|x| Transaction::from_up(x, &accounts));
+    let mut transactions = up_client
+        .transactions(Some(TransactionsGetParams {
+            page_size: Some(100),
+            filter_since: from.map(|x| x.to_rfc3339()),
+            filter_until: until.map(|x| x.to_rfc3339()),
+            filter_status: None,
+            filter_category: None,
+            filter_tag: None,
+        }))
+        .map_ok(|x| Transaction::from_up(x, &accounts));
 
     while let Some(transaction) = transactions.next().await {
-        let transaction = transaction?;
-        let x = serde_json::to_string_pretty(&transaction)?;
-        info!("{x}");
+        let transaction = transaction??;
+        info!("{transaction:?}");
     }
 
     Ok(())
