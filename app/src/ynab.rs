@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, FixedOffset, Utc};
 use color_eyre::eyre::{Context, Result};
 use ynab_client::{
     apis::{
@@ -55,7 +55,7 @@ impl Client {
     pub async fn transactions(
         &self,
         budget_id: &str,
-        from: Option<DateTime<Utc>>,
+        from: Option<DateTime<FixedOffset>>,
     ) -> Result<TransactionsResponse> {
         ynab_client::apis::transactions_api::get_transactions(
             &self.config,

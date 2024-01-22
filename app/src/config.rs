@@ -1,5 +1,3 @@
-use uuid::Uuid;
-
 use crate::Account;
 
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -10,8 +8,7 @@ pub struct Up {
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct Ynab {
     pub api_token: String,
-    pub budget_id: String,
-    pub account_id: Uuid,
+    pub budget_id: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize)]

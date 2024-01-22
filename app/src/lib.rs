@@ -5,7 +5,7 @@ pub mod ynab;
 
 use std::str::FromStr;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, FixedOffset, Utc};
 use color_eyre::eyre::{Context, ContextCompat, Result};
 use money2::{Currency, Money};
 use uuid::Uuid;
@@ -19,7 +19,7 @@ pub enum Kind {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Transaction {
-    pub time: DateTime<Utc>,
+    pub time: DateTime<FixedOffset>,
     pub amount: Money,
     pub msg: Option<String>,
     pub kind: Kind,
@@ -45,7 +45,6 @@ impl Transaction {
             .find(|account| account.up_id == value.relationships.account.data.id.as_str())
             .map(|account| account.to_owned())
             .wrap_err("missing incoming up account")?;
-
         let from = value
             .relationships
             .transfer_account
@@ -85,18 +84,30 @@ impl Transaction {
         // it to a preconfigured savings account. The round up expense happens in the same
         // transaction, but the transfer does not.
         if let Some(round_up) = value.attributes.round_up {
-            amount += Money::new(
-                i64::from(round_up.amount.value_in_base_units),
-                2,
-                Currency::from_str(&round_up.amount.currency_code)?,
-            );
+            amount = amount
+                .checked_add(Money::new(
+                    i64::from(round_up.amount.value_in_base_units),
+                    2,
+                    Currency::from_str(&round_up.amount.currency_code)?,
+                ))
+                .wrap_err("failed to add round up amount")?;
+        };
+
+        if let Some(cashback) = value.attributes.cashback {
+            amount = amount
+                .checked_add(Money::new(
+                    i64::from(cashback.amount.value_in_base_units),
+                    2,
+                    Currency::from_str(&cashback.amount.currency_code)?,
+                ))
+                .wrap_err("failed to add cashback amount")?;
         };
 
         Ok(Self {
             amount,
             msg,
             kind,
-            time: DateTime::parse_from_rfc3339(&value.attributes.created_at)?.with_timezone(&Utc),
+            time: DateTime::parse_from_rfc3339(&value.attributes.created_at)?,
         })
     }
 
@@ -109,11 +120,11 @@ impl Transaction {
             amount: Some(amount),
             memo: self.msg.clone().map(Some),
             cleared: Some(TransactionClearedStatus::Cleared),
+            approved: Some(true),
             account_id: None,
             payee_id: None,
             payee_name: None,
             category_id: None,
-            approved: None,
             flag_color: None,
             import_id: None,
             subtransactions: None,
@@ -132,45 +143,13 @@ impl Transaction {
 
         Ok(transaction)
     }
-
-    // pub fn from_ynab(value: YnabTransaction, accounts: &Accounts) -> Result<Self> {
-    //     info!("{value:#?}");
-    //     let to = accounts
-    //         .iter()
-    //         .find(|account| account.ynab_id == value.account_id)
-    //         .map(|account| account.to_owned())
-    //         .wrap_err("missing incoming ynab account")?;
-
-    //     let from = value
-    //         .payee_id
-    //         .and_then(|x| {
-    //             x.and_then(|ynab_id| {
-    //                 accounts
-    //                     .iter()
-    //                     .find(|account| account.ynab_transfer_id == ynab_id)
-    //             })
-    //         })
-    //         .map(|x| x.to_owned());
-
-    //     Ok(Self {
-    //         time: DateTime::parse_from_rfc3339(&value.date)?.with_timezone(&Utc),
-    //         amount: Money::new(
-    //             value.amount / 10,
-    //             2,
-    //             // TODO: read from budget settings
-    //             Currency::from_str("AUD")?,
-    //         ),
-    //         msg: value.memo.wrap_err("missing sender name")?,
-    //         kind,
-    //     })
-    // }
 }
 
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
 
-    use chrono::{DateTime, Utc};
+    use chrono::DateTime;
     use color_eyre::eyre::Result;
     use money2::{Currency, Money};
     use uuid::Uuid;
@@ -283,8 +262,7 @@ mod tests {
         assert_eq!(
             transaction,
             Transaction {
-                time: DateTime::parse_from_rfc3339("2023-12-02T13:44:15+11:00")?
-                    .with_timezone(&Utc),
+                time: DateTime::parse_from_rfc3339("2023-12-02T13:44:15+11:00")?,
                 amount: Money::new(-57_84, 2, Currency::Aud),
                 kind: Kind::Expense {
                     to: spending_account(),
@@ -362,8 +340,7 @@ mod tests {
         assert_eq!(
             transaction,
             Transaction {
-                time: DateTime::parse_from_rfc3339("2023-12-27T05:08:06+11:00")?
-                    .with_timezone(&Utc),
+                time: DateTime::parse_from_rfc3339("2023-12-27T05:08:06+11:00")?,
                 amount: Money::new(10_95, 2, Currency::Aud),
                 kind: Kind::Expense {
                     to: spending_account(),
@@ -445,8 +422,7 @@ mod tests {
         assert_eq!(
             transaction,
             Transaction {
-                time: DateTime::parse_from_rfc3339("2023-12-07T22:35:56+11:00")?
-                    .with_timezone(&Utc),
+                time: DateTime::parse_from_rfc3339("2023-12-07T22:35:56+11:00")?,
                 amount: Money::new(37_94, 2, Currency::Aud),
                 kind: Kind::Transfer {
                     to: spending_account(),
@@ -539,8 +515,7 @@ mod tests {
         assert_eq!(
             transaction,
             Transaction {
-                time: DateTime::parse_from_rfc3339("2023-12-28T22:49:40+11:00")?
-                    .with_timezone(&Utc),
+                time: DateTime::parse_from_rfc3339("2023-12-28T22:49:40+11:00")?,
                 amount: Money::new(-13_00, 2, Currency::Aud),
                 kind: Kind::Expense {
                     to: spending_account(),
@@ -556,7 +531,7 @@ mod tests {
     #[test]
     fn to_ynab_expense() -> Result<()> {
         let transaction = Transaction {
-            time: DateTime::parse_from_rfc3339("2023-12-02T13:44:15+11:00")?.with_timezone(&Utc),
+            time: DateTime::parse_from_rfc3339("2023-12-02T13:44:15+11:00")?,
             amount: Money::new(-57_84, 2, Currency::Aud),
             kind: Kind::Expense {
                 to: spending_account(),
@@ -570,14 +545,14 @@ mod tests {
             transaction,
             SaveTransaction {
                 account_id: Some(spending_account().ynab_id),
-                date: Some("2023-12-02T02:44:15+00:00".to_string()),
+                date: Some("2023-12-02T13:44:15+11:00".to_string()),
                 amount: Some(-57_840),
                 payee_name: Some(Some("7-Eleven".to_string())),
                 cleared: Some(TransactionClearedStatus::Cleared),
                 payee_id: None,
                 category_id: None,
                 memo: None,
-                approved: None,
+                approved: Some(true),
                 flag_color: None,
                 import_id: None,
                 subtransactions: None,
@@ -590,7 +565,7 @@ mod tests {
     #[test]
     fn to_ynab_transfer() -> Result<()> {
         let transaction = Transaction {
-            time: DateTime::parse_from_rfc3339("2023-12-07T22:35:56+11:00")?.with_timezone(&Utc),
+            time: DateTime::parse_from_rfc3339("2023-12-07T22:35:56+11:00")?,
             amount: Money::new(37_94, 2, Currency::Aud),
             kind: Kind::Transfer {
                 to: spending_account(),
@@ -604,14 +579,14 @@ mod tests {
             transaction,
             SaveTransaction {
                 account_id: Some(spending_account().ynab_id),
-                date: Some("2023-12-07T11:35:56+00:00".to_string()),
+                date: Some("2023-12-07T22:35:56+11:00".to_string()),
                 amount: Some(37_940),
                 payee_id: Some(Some(home_account().ynab_transfer_id)),
                 cleared: Some(TransactionClearedStatus::Cleared),
                 memo: Some(Some("Transfer from Home".to_string())),
                 payee_name: None,
                 category_id: None,
-                approved: None,
+                approved: Some(true),
                 flag_color: None,
                 import_id: None,
                 subtransactions: None,

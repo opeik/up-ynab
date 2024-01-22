@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, FixedOffset, Utc};
 
 #[derive(clap::Parser)]
 #[command(author, version, about, long_about = None)]
@@ -20,9 +20,9 @@ pub enum Commands {
     /// Fetches Up transactions.
     GetUpTransactions {
         #[arg(long)]
-        from: Option<DateTime<Utc>>,
+        from: Option<DateTime<FixedOffset>>,
         #[arg(long)]
-        until: Option<DateTime<Utc>>,
+        until: Option<DateTime<FixedOffset>>,
     },
     /// Fetches YNAB accounts.
     GetYnabAccounts,
@@ -31,13 +31,15 @@ pub enum Commands {
     /// Fetches YNAB transactions.
     GetYnabTransactions {
         #[arg(long)]
-        from: Option<DateTime<Utc>>,
+        from: Option<DateTime<FixedOffset>>,
     },
     /// Syncs transactions from Up to YNAB.
     Sync {
         #[arg(long)]
-        from: Option<DateTime<Utc>>,
+        from: Option<DateTime<FixedOffset>>,
         #[arg(long)]
-        until: Option<DateTime<Utc>>,
+        until: Option<DateTime<FixedOffset>>,
     },
+    /// Configures up-ynab.
+    Setup,
 }
