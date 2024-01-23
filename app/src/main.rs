@@ -10,6 +10,7 @@ use figment::{
 };
 use futures::{StreamExt, TryStreamExt};
 use itertools::Itertools;
+use money2::Decimal;
 use tracing::info;
 use up_client::apis::transactions_api::TransactionsGetParams;
 use up_ynab::*;
@@ -67,31 +68,110 @@ async fn get_up_transactions(
     let accounts = config.account.clone().unwrap_or_default();
 
     info!("fetching up transactions...");
-    let mut transactions = up_client.transactions(Some(TransactionsGetParams {
-        page_size: Some(100),
-        filter_since: from.map(|x| x.to_rfc3339()),
-        filter_until: until.map(|x| x.to_rfc3339()),
-        filter_status: None,
-        filter_category: None,
-        filter_tag: None,
-    }));
-    // .map_ok(|x| Transaction::from_up(x, &accounts));
+    let mut transactions = up_client
+        .transactions(Some(TransactionsGetParams {
+            page_size: Some(100),
+            filter_since: from.map(|x| x.to_rfc3339()),
+            filter_until: until.map(|x| x.to_rfc3339()),
+            filter_status: None,
+            filter_category: None,
+            filter_tag: None,
+        }))
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<Vec<_>>();
 
-    let mut wtr = csv::Writer::from_path("out.csv")?;
-
-    while let Some(transaction) = transactions.next().await {
-        let transaction = transaction?;
-        info!("{transaction:?}");
+    #[derive(serde::Serialize)]
+    struct Record {
+        date_time: String,
+        amount: String,
+        round_up: Option<String>,
+        cash_back: Option<String>,
+        final_amount: String,
+        to_account: String,
+        from_account: Option<String>,
+        description: String,
+        message: Option<String>,
+        spending_balance: Decimal,
+        bills_balance: Decimal,
+        home_loan_deposit_balance: Decimal,
+        rent_balance: Decimal,
+        emergency_balance: Decimal,
+        home_balance: Decimal,
     }
 
-    wtr.flush()?;
+    let mut spending_balance = Decimal::default();
+    let mut bills_balance = Decimal::default();
+    let mut home_loan_deposit_balance = Decimal::default();
+    let mut rent_balance = Decimal::default();
+    let mut emergency_balance = Decimal::default();
+    let mut home_balance = Decimal::default();
+    let mut csv = csv::Writer::from_path("out.csv")?;
+
+    for transaction in transactions.into_iter().rev() {
+        let transaction = transaction?;
+        let attrs = &transaction.attributes;
+        let x = Transaction::from_up(transaction.clone(), &accounts)?;
+
+        // god help me
+        match &x.kind {
+            Kind::Expense { to, from_name: _ } => match to.name.as_str() {
+                "Spending" => spending_balance += x.amount.amount,
+                "Bills" => bills_balance += x.amount.amount,
+                "Home loan deposit" => home_loan_deposit_balance += x.amount.amount,
+                "Rent" => rent_balance += x.amount.amount,
+                "Emergency" => emergency_balance += x.amount.amount,
+                "Home" => home_balance += x.amount.amount,
+                _ => {}
+            },
+            Kind::Transfer { to, from } => match to.name.as_str() {
+                "Spending" => spending_balance += x.amount.amount,
+                "Bills" => bills_balance += x.amount.amount,
+                "Home loan deposit" => home_loan_deposit_balance += x.amount.amount,
+                "Rent" => rent_balance += x.amount.amount,
+                "Emergency" => emergency_balance += x.amount.amount,
+                "Home" => home_balance += x.amount.amount,
+                _ => {}
+            },
+        };
+
+        let record = Record {
+            date_time: attrs.created_at.clone(),
+            amount: attrs.amount.value.clone(),
+            round_up: attrs.round_up.clone().map(|x| x.amount.value),
+            cash_back: attrs.cashback.clone().map(|x| x.amount.value),
+            to_account: match &x.kind {
+                Kind::Expense { to, from_name: _ } => to.name.clone(),
+                Kind::Transfer { to, from: _ } => to.name.clone(),
+            },
+            from_account: match &x.kind {
+                Kind::Expense { to: _, from_name } => None,
+                Kind::Transfer { to: _, from } => Some(from.name.clone()),
+            },
+            message: attrs.message.clone(),
+            description: attrs.description.clone(),
+            final_amount: x.amount.amount.to_string(),
+            spending_balance,
+            bills_balance,
+            home_balance,
+            home_loan_deposit_balance,
+            rent_balance,
+            emergency_balance,
+        };
+
+        csv.serialize(record)?;
+        info!("{transaction:?}");
+        info!("{x:?}");
+    }
+
+    csv.flush()?;
 
     Ok(())
 }
 
 async fn get_ynab_transactions(config: &Config, from: Option<DateTime<FixedOffset>>) -> Result<()> {
     let ynab_client = ynab::Client::new(&config.ynab.api_token);
-    let accounts = config.account.clone().unwrap_or_default();
     let budget_id = config
         .ynab
         .budget_id
@@ -108,6 +188,9 @@ async fn get_ynab_transactions(config: &Config, from: Option<DateTime<FixedOffse
     //         .map(|x| Transaction::from_ynab(x, &accounts))
     //         .collect::<Result<Vec<_>>>()
     // })??;
+
+    let l = transactions.data.transactions.len();
+    info!("found {} transactions", l);
 
     for transaction in transactions.data.transactions {
         info!("{transaction:?}");
@@ -176,18 +259,27 @@ async fn sync(
 
     let mut up_transactions = up_client.transactions(args).chunks(100);
 
+    fn is_outgoing_transfer(x: &Transaction) -> bool {
+        let msg_matches = x
+            .msg
+            .as_ref()
+            .map(|s| {
+                s.contains("Transfer to ")
+                    || s.contains("Cover to ")
+                    || s.contains("Quick save transfer to")
+                    || s.contains("Forward to ")
+            })
+            .unwrap_or(false);
+
+        msg_matches
+    }
+
     while let Some(chunk) = up_transactions.next().await {
         let (oks, errs): (Vec<_>, Vec<_>) = chunk.into_iter().partition_result();
         let transactions = oks
             .into_iter()
             .flat_map(|x| Transaction::from_up(x, &accounts))
-            .filter(|x| match x.kind {
-                Kind::Expense {
-                    to: _,
-                    from_name: _,
-                } => true,
-                Kind::Transfer { to: _, from: _ } => x.amount.amount.is_sign_negative(),
-            })
+            .filter(|x| !is_outgoing_transfer(x))
             .inspect(|x| info!("{x:?}"))
             .map(|x| x.to_ynab())
             .collect::<Result<Vec<_>>>()?;
@@ -197,25 +289,30 @@ async fn sync(
         }
 
         info!("creating ynab transactions...");
-        // let response = ynab_client
-        //     .new_transactions(budget_id, &transactions)
-        //     .await?;
+        let response = ynab_client
+            .new_transactions(budget_id, &transactions)
+            .await?;
 
-        // let num_missing = transactions.len()
-        //     - response .data .transactions .as_ref() .unwrap_or(&Vec::new()) .len();
+        let num_missing = transactions.len()
+            - response
+                .data
+                .transactions
+                .as_ref()
+                .unwrap_or(&Vec::new())
+                .len();
 
-        // if num_missing != 0 {
-        //     return Err(eyre!("failed to create {num_missing} transactions"));
-        // }
+        if num_missing != 0 {
+            return Err(eyre!("failed to create {num_missing} transactions"));
+        }
 
-        // if let Some(duplicate_ids) = response.data.duplicate_import_ids
-        //     && !duplicate_ids.is_empty()
-        // {
-        //     return Err(eyre!(
-        //         "found duplicate transaction ids: {}",
-        //         duplicate_ids.iter().join(", ")
-        //     ));
-        // }
+        if let Some(duplicate_ids) = response.data.duplicate_import_ids
+            && !duplicate_ids.is_empty()
+        {
+            return Err(eyre!(
+                "found duplicate transaction ids: {}",
+                duplicate_ids.iter().join(", ")
+            ));
+        }
     }
 
     Ok(())

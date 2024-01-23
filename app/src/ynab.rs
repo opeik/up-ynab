@@ -1,4 +1,4 @@
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{DateTime, FixedOffset};
 use color_eyre::eyre::{Context, Result};
 use ynab_client::{
     apis::{

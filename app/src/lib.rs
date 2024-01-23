@@ -5,7 +5,7 @@ pub mod ynab;
 
 use std::str::FromStr;
 
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{DateTime, FixedOffset};
 use color_eyre::eyre::{Context, ContextCompat, Result};
 use money2::{Currency, Money};
 use uuid::Uuid;
@@ -44,18 +44,31 @@ impl Transaction {
             .iter()
             .find(|account| account.up_id == value.relationships.account.data.id.as_str())
             .map(|account| account.to_owned())
-            .wrap_err("missing incoming up account")?;
-        let from = value
-            .relationships
-            .transfer_account
-            .data
-            .map(|up_id| up_id.id)
-            .and_then(|up_id| {
+            .wrap_err("failed to match incoming up account")?;
+
+        let from = if let Some(transfer_account) = value.relationships.transfer_account.data {
+            Some(
                 accounts
                     .iter()
-                    .find(|account| account.up_id == up_id.as_str())
-            })
-            .map(|x| x.to_owned());
+                    .find(|account| account.up_id == transfer_account.id.as_str())
+                    .map(|account| account.to_owned())
+                    .wrap_err("failed to match outgoing up account")?,
+            )
+        } else {
+            None
+        };
+
+        // let from = value
+        //     .relationships
+        //     .transfer_account
+        //     .data
+        //     .map(|up_id| up_id.id)
+        //     .and_then(|up_id| {
+        //         accounts
+        //             .iter()
+        //             .find(|account| account.up_id == up_id.as_str())
+        //     })
+        //     .map(|x| x.to_owned());
 
         let kind = if let Some(from) = from {
             Kind::Transfer { to, from }
@@ -431,6 +444,146 @@ mod tests {
                 msg: Some("Transfer from Home".to_string()),
             }
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn up_transfer_invalid_account_id() -> Result<()> {
+        let payload = r#"
+        {
+          "type": "transactions",
+          "id": "f1b6981f-94d2-42b6-9cae-304dae08a480",
+          "attributes": {
+            "status": "SETTLED",
+            "rawText": null,
+            "description": "Transfer from Home",
+            "message": "",
+            "isCategorizable": false,
+            "holdInfo": null,
+            "roundUp": null,
+            "cashback": null,
+            "amount": {
+              "currencyCode": "AUD",
+              "value": "37.94",
+              "valueInBaseUnits": 3794
+            },
+            "foreignAmount": null,
+            "settledAt": "2023-12-07T22:35:56+11:00",
+            "createdAt": "2023-12-07T22:35:56+11:00"
+          },
+          "relationships": {
+            "account": {
+              "data": {
+                "type": "accounts",
+                "id": "pain"
+              },
+              "links": {
+                "related": "https://api.up.com.au/api/v1/accounts/pain"
+              }
+            },
+            "transferAccount": {
+              "data": {
+                "type": "accounts",
+                "id": "328160b1-d7bc-41ee-9d7b-c7da4f2484b0"
+              },
+              "links": {
+                "related": "https://api.up.com.au/api/v1/accounts/328160b1-d7bc-41ee-9d7b-c7da4f2484b0"
+              }
+            },
+            "category": {
+              "data": null
+            },
+            "parentCategory": {
+              "data": null
+            },
+            "tags": {
+              "data": [],
+              "links": {
+                "self": "https://api.up.com.au/api/v1/transactions/f1b6981f-94d2-42b6-9cae-304dae08a480/relationships/tags"
+              }
+            }
+          },
+          "links": {
+            "self": "https://api.up.com.au/api/v1/transactions/f1b6981f-94d2-42b6-9cae-304dae08a480"
+          }
+        }
+        "#;
+
+        let up_transaction = serde_json::from_str::<UpTransaction>(payload)?;
+        let accounts = accounts();
+        let transaction = Transaction::from_up(up_transaction, &accounts);
+        assert!(transaction.is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn up_transfer_invalid_transfer_account_id() -> Result<()> {
+        let payload = r#"
+        {
+          "type": "transactions",
+          "id": "f1b6981f-94d2-42b6-9cae-304dae08a480",
+          "attributes": {
+            "status": "SETTLED",
+            "rawText": null,
+            "description": "Transfer from Home",
+            "message": "",
+            "isCategorizable": false,
+            "holdInfo": null,
+            "roundUp": null,
+            "cashback": null,
+            "amount": {
+              "currencyCode": "AUD",
+              "value": "37.94",
+              "valueInBaseUnits": 3794
+            },
+            "foreignAmount": null,
+            "settledAt": "2023-12-07T22:35:56+11:00",
+            "createdAt": "2023-12-07T22:35:56+11:00"
+          },
+          "relationships": {
+            "account": {
+              "data": {
+                "type": "accounts",
+                "id": "2be1c9de-7a89-4e8f-8077-f535150b588d"
+              },
+              "links": {
+                "related": "https://api.up.com.au/api/v1/accounts/2be1c9de-7a89-4e8f-8077-f535150b588d"
+              }
+            },
+            "transferAccount": {
+              "data": {
+                "type": "accounts",
+                "id": "pain"
+              },
+              "links": {
+                "related": "https://api.up.com.au/api/v1/accounts/pain"
+              }
+            },
+            "category": {
+              "data": null
+            },
+            "parentCategory": {
+              "data": null
+            },
+            "tags": {
+              "data": [],
+              "links": {
+                "self": "https://api.up.com.au/api/v1/transactions/f1b6981f-94d2-42b6-9cae-304dae08a480/relationships/tags"
+              }
+            }
+          },
+          "links": {
+            "self": "https://api.up.com.au/api/v1/transactions/f1b6981f-94d2-42b6-9cae-304dae08a480"
+          }
+        }
+        "#;
+
+        let up_transaction = serde_json::from_str::<UpTransaction>(payload)?;
+        let accounts = accounts();
+        let transaction = Transaction::from_up(up_transaction, &accounts);
+        assert!(transaction.is_err());
 
         Ok(())
     }

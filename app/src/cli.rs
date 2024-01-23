@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{DateTime, FixedOffset};
 
 #[derive(clap::Parser)]
 #[command(author, version, about, long_about = None)]
