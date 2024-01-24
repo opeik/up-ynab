@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, FixedOffset};
 use clap::Parser;
-use color_eyre::eyre::{eyre, ContextCompat, Result};
+use color_eyre::eyre::{eyre, ContextCompat, Error, Result};
 use figment::{
     providers::{Format, Toml},
     Figment,
@@ -223,8 +223,10 @@ async fn fetch_accounts(config: &Config) -> Result<Vec<Account>> {
         .into_iter()
         .flatten()
         .collect::<Vec<_>>();
+    info!("found {} up accounts", up_accounts.len());
 
     let ynab_accounts = ynab_client.accounts().budget_id(budget_id).send().await?;
+    info!("found {} ynab accounts", up_accounts.len());
 
     let accounts = up_accounts
         .into_iter()
@@ -234,7 +236,7 @@ async fn fetch_accounts(config: &Config) -> Result<Vec<Account>> {
                 .iter()
                 .find(|x| x.name == up_account_name)
                 .wrap_err(format!(
-                    "failed to find matching ynab account for up account `{up_account_name}`"
+                    "failed to match up account `{up_account_name}` to ynab account"
                 ))?;
             Ok(Account {
                 name: up_account_name,
@@ -245,8 +247,15 @@ async fn fetch_accounts(config: &Config) -> Result<Vec<Account>> {
                     .wrap_err("missing ynab transfer id")?,
             })
         })
-        .collect::<Result<Vec<Account>>>()?;
+        .inspect(|x: &Result<Account>| {
+            if let Err(e) = x {
+                error!("{e}");
+            };
+        })
+        .flatten()
+        .collect::<Vec<Account>>();
 
+    info!("matched {} up accounts to ynab accounts", accounts.len());
     Ok(accounts)
 }
 
