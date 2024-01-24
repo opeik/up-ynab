@@ -5,7 +5,7 @@ use color_eyre::eyre::{Context, ContextCompat, Result};
 use money2::{Currency, Money};
 use ynab_client::models::TransactionClearedStatus;
 
-use crate::{Account, Accounts, NewYnabTransaction, UpTransaction};
+use crate::{Account, NewYnabTransaction, UpTransaction};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
@@ -22,7 +22,7 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    pub fn from_up(value: UpTransaction, accounts: &Accounts) -> Result<Self> {
+    pub fn from_up(value: UpTransaction, accounts: &[Account]) -> Result<Self> {
         let to = accounts
             .iter()
             .find(|account| account.up_id == value.relationships.account.data.id.as_str())
@@ -130,16 +130,10 @@ impl Transaction {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use chrono::DateTime;
-    use color_eyre::eyre::Result;
-    use money2::{Currency, Money};
     use uuid::Uuid;
-    use ynab_client::models::{SaveTransaction, TransactionClearedStatus};
 
     use super::*;
-    use crate::{Account, UpTransaction};
+    use crate::{Account, NewYnabTransaction, UpTransaction};
 
     fn spending_account() -> Account {
         Account {
@@ -667,7 +661,7 @@ mod tests {
 
         assert_eq!(
             transaction,
-            SaveTransaction {
+            NewYnabTransaction {
                 account_id: Some(spending_account().ynab_id),
                 date: Some("2023-12-02T13:44:15+11:00".to_string()),
                 amount: Some(-57_840),
@@ -701,7 +695,7 @@ mod tests {
 
         assert_eq!(
             transaction,
-            SaveTransaction {
+            NewYnabTransaction {
                 account_id: Some(spending_account().ynab_id),
                 date: Some("2023-12-07T22:35:56+11:00".to_string()),
                 amount: Some(37_940),

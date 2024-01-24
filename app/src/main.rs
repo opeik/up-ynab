@@ -269,8 +269,7 @@ async fn fetch_accounts(config: &Config) -> Result<Vec<Account>> {
 
 fn load_run<P: AsRef<Path>>(run_path: P) -> Result<()> {
     let run = Run::read(run_path)?;
-
-    for up_transaction in run.up_transactions {}
+    for _up_transaction in run.up_transactions {}
 
     Ok(())
 }
