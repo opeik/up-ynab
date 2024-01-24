@@ -156,6 +156,9 @@ impl Client {
         }
     }
 
+    /// Retrieve a paginated list of all accounts for the currently authenticated user. The returned
+    /// list is paginated and can be scrolled by following the `prev` and `next` links where
+    /// present.
     pub fn transactions(&self) -> GetTransactionsParamsBuilder<'_> {
         GetTransactionsParamsBuilder {
             client: Some(self),
@@ -163,6 +166,12 @@ impl Client {
         }
     }
 
+    /// Retrieve a list of all transactions across all accounts for the currently authenticated
+    /// user. The returned list is [paginated](#pagination) and can be scrolled by following the
+    /// `next` and `prev` links where present. To narrow the results to a specific date range
+    /// pass one or both of `filter[since]` and `filter[until]` in the query string. These
+    /// filter parameters **should not** be used for pagination. Results are ordered newest
+    /// first to oldest last.
     pub fn accounts(&self) -> GetAccountsParamsBuilder<'_> {
         GetAccountsParamsBuilder {
             client: Some(self),

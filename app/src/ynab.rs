@@ -167,6 +167,7 @@ impl Client {
         }
     }
 
+    /// Returns all accounts.
     pub fn accounts(&self) -> GetAccountsParamsBuilder<'_> {
         GetAccountsParamsBuilder {
             client: Some(self),
@@ -174,6 +175,7 @@ impl Client {
         }
     }
 
+    /// Returns budgets list with summary information.
     pub fn budgets(&self) -> GetBudgetsParamsBuilder<'_> {
         GetBudgetsParamsBuilder {
             client: Some(self),
@@ -181,6 +183,7 @@ impl Client {
         }
     }
 
+    /// Returns budget transactions.
     pub fn transactions(&self) -> GetTransactionsParamsBuilder<'_> {
         GetTransactionsParamsBuilder {
             client: Some(self),
@@ -188,6 +191,10 @@ impl Client {
         }
     }
 
+    /// /// Creates a single transaction or multiple transactions.  If you provide a body containing
+    /// a `transaction` object, a single transaction will be created and if you provide a body
+    /// containing a `transactions` array, multiple transactions will be created.  Scheduled
+    /// transactions cannot be created on this endpoint.
     pub fn new_transactions(&self) -> NewTransactionsParamsBuilder<'_> {
         NewTransactionsParamsBuilder {
             client: Some(self),
