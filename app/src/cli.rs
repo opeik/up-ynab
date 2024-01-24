@@ -15,6 +15,13 @@ pub struct Cli {
 
 #[derive(clap::Subcommand)]
 pub enum Commands {
+    /// Syncs transactions from Up to YNAB.
+    SyncTransactions {
+        #[arg(long)]
+        since: Option<DateTime<FixedOffset>>,
+        #[arg(long)]
+        until: Option<DateTime<FixedOffset>>,
+    },
     /// Fetches Up accounts.
     GetUpAccounts,
     /// Fetches Up transactions.
@@ -32,13 +39,6 @@ pub enum Commands {
     GetYnabTransactions {
         #[arg(long)]
         since: Option<DateTime<FixedOffset>>,
-    },
-    /// Syncs transactions from Up to YNAB.
-    Sync {
-        #[arg(long)]
-        since: Option<DateTime<FixedOffset>>,
-        #[arg(long)]
-        until: Option<DateTime<FixedOffset>>,
     },
     /// Load an past run.
     LoadRun {

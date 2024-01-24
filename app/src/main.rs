@@ -31,6 +31,8 @@ async fn main() -> Result<()> {
         .extract::<Config>()?;
 
     match cli.command {
+        Commands::SyncTransactions { since, until } => sync(&config, since, until).await?,
+        Commands::LoadRun { path } => load_run(path)?,
         Commands::GetUpAccounts => get_up_accounts(&config).await?,
         Commands::GetUpTransactions { since, until } => {
             get_up_transactions(&config, since, until).await?
@@ -38,8 +40,6 @@ async fn main() -> Result<()> {
         Commands::GetYnabAccounts => get_ynab_accounts(&config).await?,
         Commands::GetYnabBudgets => get_ynab_budgets(&config).await?,
         Commands::GetYnabTransactions { since } => get_ynab_transactions(&config, since).await?,
-        Commands::Sync { since, until } => sync(&config, since, until).await?,
-        Commands::LoadRun { path } => load_run(path)?,
     }
 
     Ok(())
