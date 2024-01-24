@@ -1,5 +1,3 @@
-#![feature(type_alias_impl_trait)]
-
 pub mod cli;
 pub mod config;
 pub mod transaction;
