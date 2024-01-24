@@ -1,5 +1,3 @@
-use crate::Account;
-
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct Up {
     pub api_token: String,
@@ -15,5 +13,4 @@ pub struct Ynab {
 pub struct Config {
     pub up: Up,
     pub ynab: Ynab,
-    pub account: Option<Vec<Account>>,
 }

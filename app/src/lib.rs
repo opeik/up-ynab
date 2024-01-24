@@ -1,3 +1,5 @@
+#![feature(type_alias_impl_trait)]
+
 pub mod cli;
 pub mod config;
 pub mod up;
@@ -46,29 +48,16 @@ impl Transaction {
             .map(|account| account.to_owned())
             .wrap_err("failed to match incoming up account")?;
 
-        let from = if let Some(transfer_account) = value.relationships.transfer_account.data {
-            Some(
+        let from = match value.relationships.transfer_account.data {
+            Some(transfer_account) => Some(
                 accounts
                     .iter()
                     .find(|account| account.up_id == transfer_account.id.as_str())
                     .map(|account| account.to_owned())
                     .wrap_err("failed to match outgoing up account")?,
-            )
-        } else {
-            None
+            ),
+            None => None,
         };
-
-        // let from = value
-        //     .relationships
-        //     .transfer_account
-        //     .data
-        //     .map(|up_id| up_id.id)
-        //     .and_then(|up_id| {
-        //         accounts
-        //             .iter()
-        //             .find(|account| account.up_id == up_id.as_str())
-        //     })
-        //     .map(|x| x.to_owned());
 
         let kind = if let Some(from) = from {
             Kind::Transfer { to, from }
@@ -134,7 +123,7 @@ impl Transaction {
             memo: self.msg.clone().map(Some),
             cleared: Some(TransactionClearedStatus::Cleared),
             approved: Some(true),
-            account_id: None,
+            account_id: Some(Uuid::parse_str("79d01174-1056-4f44-a3a3-248483eb51d0")?),
             payee_id: None,
             payee_name: None,
             category_id: None,
@@ -145,12 +134,13 @@ impl Transaction {
 
         match &self.kind {
             Kind::Expense { to, from_name } => {
-                transaction.account_id = Some(to.ynab_id);
+                // transaction.account_id = Some(to.ynab_id);
                 transaction.payee_name = Some(Some(from_name.clone()));
             }
             Kind::Transfer { to, from } => {
-                transaction.account_id = Some(to.ynab_id);
-                transaction.payee_id = Some(Some(from.ynab_transfer_id));
+                // transaction.account_id = Some(to.ynab_id);
+                // transaction.payee_id = Some(Some(from.ynab_transfer_id));
+                transaction.payee_name = Some(Some(from.name.clone()));
             }
         }
 

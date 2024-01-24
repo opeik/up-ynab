@@ -10,9 +10,7 @@ use figment::{
 };
 use futures::{StreamExt, TryStreamExt};
 use itertools::Itertools;
-use money2::Decimal;
-use tracing::info;
-use up_client::apis::transactions_api::TransactionsGetParams;
+use tracing::{error, info};
 use up_ynab::*;
 
 use crate::{
@@ -34,13 +32,13 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::GetUpAccounts => get_up_accounts(&config).await?,
-        Commands::GetUpTransactions { from, until } => {
-            get_up_transactions(&config, from, until).await?
+        Commands::GetUpTransactions { since, until } => {
+            get_up_transactions(&config, since, until).await?
         }
         Commands::GetYnabAccounts => get_ynab_accounts(&config).await?,
         Commands::GetYnabBudgets => get_ynab_budgets(&config).await?,
-        Commands::GetYnabTransactions { from } => get_ynab_transactions(&config, from).await?,
-        Commands::Sync { from, until } => sync(&config, from, until).await?,
+        Commands::GetYnabTransactions { since } => get_ynab_transactions(&config, since).await?,
+        Commands::Sync { since, until } => sync(&config, since, until).await?,
         Commands::Setup => todo!(),
     }
 
@@ -51,7 +49,7 @@ async fn get_up_accounts(config: &Config) -> Result<()> {
     let up_client = up::Client::new(&config.up.api_token);
 
     info!("fetching up accounts...");
-    let mut accounts = up_client.accounts(None);
+    let mut accounts = up_client.accounts().send()?;
     while let Some(account) = accounts.try_next().await? {
         info!("{}: {}", account.id, account.attributes.display_name);
     }
@@ -61,116 +59,30 @@ async fn get_up_accounts(config: &Config) -> Result<()> {
 
 async fn get_up_transactions(
     config: &Config,
-    from: Option<DateTime<FixedOffset>>,
+    since: Option<DateTime<FixedOffset>>,
     until: Option<DateTime<FixedOffset>>,
 ) -> Result<()> {
     let up_client = up::Client::new(&config.up.api_token);
-    let accounts = config.account.clone().unwrap_or_default();
 
     info!("fetching up transactions...");
     let mut transactions = up_client
-        .transactions(Some(TransactionsGetParams {
-            page_size: Some(100),
-            filter_since: from.map(|x| x.to_rfc3339()),
-            filter_until: until.map(|x| x.to_rfc3339()),
-            filter_status: None,
-            filter_category: None,
-            filter_tag: None,
-        }))
-        .collect::<Vec<_>>()
-        .await
-        .into_iter()
-        .collect::<Vec<_>>();
+        .transactions()
+        .filter_since(since)
+        .filter_until(until)
+        .send()?
+        .inspect_err(|e| error!("failed to fetch transaction: {e}"));
 
-    #[derive(serde::Serialize)]
-    struct Record {
-        date_time: String,
-        amount: String,
-        round_up: Option<String>,
-        cash_back: Option<String>,
-        final_amount: String,
-        to_account: String,
-        from_account: Option<String>,
-        description: String,
-        message: Option<String>,
-        spending_balance: Decimal,
-        bills_balance: Decimal,
-        home_loan_deposit_balance: Decimal,
-        rent_balance: Decimal,
-        emergency_balance: Decimal,
-        home_balance: Decimal,
-    }
-
-    let mut spending_balance = Decimal::default();
-    let mut bills_balance = Decimal::default();
-    let mut home_loan_deposit_balance = Decimal::default();
-    let mut rent_balance = Decimal::default();
-    let mut emergency_balance = Decimal::default();
-    let mut home_balance = Decimal::default();
-    let mut csv = csv::Writer::from_path("out.csv")?;
-
-    for transaction in transactions.into_iter().rev() {
-        let transaction = transaction?;
-        let attrs = &transaction.attributes;
-        let x = Transaction::from_up(transaction.clone(), &accounts)?;
-
-        // god help me
-        match &x.kind {
-            Kind::Expense { to, from_name: _ } => match to.name.as_str() {
-                "Spending" => spending_balance += x.amount.amount,
-                "Bills" => bills_balance += x.amount.amount,
-                "Home loan deposit" => home_loan_deposit_balance += x.amount.amount,
-                "Rent" => rent_balance += x.amount.amount,
-                "Emergency" => emergency_balance += x.amount.amount,
-                "Home" => home_balance += x.amount.amount,
-                _ => {}
-            },
-            Kind::Transfer { to, from } => match to.name.as_str() {
-                "Spending" => spending_balance += x.amount.amount,
-                "Bills" => bills_balance += x.amount.amount,
-                "Home loan deposit" => home_loan_deposit_balance += x.amount.amount,
-                "Rent" => rent_balance += x.amount.amount,
-                "Emergency" => emergency_balance += x.amount.amount,
-                "Home" => home_balance += x.amount.amount,
-                _ => {}
-            },
-        };
-
-        let record = Record {
-            date_time: attrs.created_at.clone(),
-            amount: attrs.amount.value.clone(),
-            round_up: attrs.round_up.clone().map(|x| x.amount.value),
-            cash_back: attrs.cashback.clone().map(|x| x.amount.value),
-            to_account: match &x.kind {
-                Kind::Expense { to, from_name: _ } => to.name.clone(),
-                Kind::Transfer { to, from: _ } => to.name.clone(),
-            },
-            from_account: match &x.kind {
-                Kind::Expense { to: _, from_name } => None,
-                Kind::Transfer { to: _, from } => Some(from.name.clone()),
-            },
-            message: attrs.message.clone(),
-            description: attrs.description.clone(),
-            final_amount: x.amount.amount.to_string(),
-            spending_balance,
-            bills_balance,
-            home_balance,
-            home_loan_deposit_balance,
-            rent_balance,
-            emergency_balance,
-        };
-
-        csv.serialize(record)?;
+    while let Some(Ok(transaction)) = transactions.next().await {
         info!("{transaction:?}");
-        info!("{x:?}");
     }
-
-    csv.flush()?;
 
     Ok(())
 }
 
-async fn get_ynab_transactions(config: &Config, from: Option<DateTime<FixedOffset>>) -> Result<()> {
+async fn get_ynab_transactions(
+    config: &Config,
+    since: Option<DateTime<FixedOffset>>,
+) -> Result<()> {
     let ynab_client = ynab::Client::new(&config.ynab.api_token);
     let budget_id = config
         .ynab
@@ -179,20 +91,14 @@ async fn get_ynab_transactions(config: &Config, from: Option<DateTime<FixedOffse
         .wrap_err("missing budget id")?;
 
     info!("fetching ynab transactions...");
-    let transactions = ynab_client.transactions(budget_id, from).await?;
-    // .map(|transactions| {
-    //     transactions
-    //         .data
-    //         .transactions
-    //         .into_iter()
-    //         .map(|x| Transaction::from_ynab(x, &accounts))
-    //         .collect::<Result<Vec<_>>>()
-    // })??;
+    let transactions = ynab_client
+        .transactions()
+        .budget_id(budget_id)
+        .since_date(since)
+        .send()
+        .await?;
 
-    let l = transactions.data.transactions.len();
-    info!("found {} transactions", l);
-
-    for transaction in transactions.data.transactions {
+    for transaction in transactions {
         info!("{transaction:?}");
     }
 
@@ -208,8 +114,8 @@ async fn get_ynab_accounts(config: &Config) -> Result<()> {
         .wrap_err("missing budget id")?;
 
     info!("fetching ynab accounts...");
-    let response = ynab_client.accounts(budget_id).await?;
-    for account in response.data.accounts {
+    let accounts = ynab_client.accounts().budget_id(budget_id).send().await?;
+    for account in accounts {
         info!(
             "{}\nid: {}\ntransfer_id: {}",
             account.name,
@@ -225,8 +131,8 @@ async fn get_ynab_budgets(config: &Config) -> Result<()> {
     let ynab_client = ynab::Client::new(&config.ynab.api_token);
 
     info!("fetching ynab budgets...");
-    let response = ynab_client.budgets().await?;
-    for budget in response.data.budgets {
+    let budgets = ynab_client.budgets().send().await?;
+    for budget in budgets {
         info!("{}: {}", budget.id, budget.name);
     }
 
@@ -235,12 +141,13 @@ async fn get_ynab_budgets(config: &Config) -> Result<()> {
 
 async fn sync(
     config: &Config,
-    from: Option<DateTime<FixedOffset>>,
+    since: Option<DateTime<FixedOffset>>,
     until: Option<DateTime<FixedOffset>>,
 ) -> Result<()> {
     let up_client = up::Client::new(&config.up.api_token);
     let ynab_client = ynab::Client::new(&config.ynab.api_token);
-    let accounts = config.account.clone().unwrap_or_default();
+    let accounts = fetch_accounts(config).await?;
+
     let budget_id = config
         .ynab
         .budget_id
@@ -248,74 +155,99 @@ async fn sync(
         .wrap_err("missing budget id")?;
 
     info!("fetching up transactions...");
-    let args = Some(TransactionsGetParams {
-        page_size: Some(100),
-        filter_since: from.map(|x| x.to_rfc3339()),
-        filter_until: until.map(|x| x.to_rfc3339()),
-        filter_status: None,
-        filter_category: None,
-        filter_tag: None,
-    });
+    let up_transactions = up_client
+        .transactions()
+        .filter_since(since)
+        .filter_until(until)
+        .send()?
+        .collect::<Vec<_>>()
+        .await;
 
-    let mut up_transactions = up_client.transactions(args).chunks(100);
+    let (oks, errs): (Vec<_>, Vec<_>) = up_transactions.into_iter().partition_result();
+    let ynab_transactions = oks
+        .into_iter()
+        .flat_map(|x| Transaction::from_up(x, &accounts))
+        // .filter(|x| !is_outgoing_transfer(x))
+        .inspect(|x| info!("{x:?}"))
+        .map(|x| x.to_ynab())
+        .collect::<Result<Vec<_>>>()?;
 
-    fn is_outgoing_transfer(x: &Transaction) -> bool {
-        let msg_matches = x
-            .msg
-            .as_ref()
-            .map(|s| {
-                s.contains("Transfer to ")
-                    || s.contains("Cover to ")
-                    || s.contains("Quick save transfer to")
-                    || s.contains("Forward to ")
-            })
-            .unwrap_or(false);
-
-        msg_matches
+    for e in errs {
+        error!("failed to convert transaction: {e}");
     }
 
-    while let Some(chunk) = up_transactions.next().await {
-        let (oks, errs): (Vec<_>, Vec<_>) = chunk.into_iter().partition_result();
-        let transactions = oks
-            .into_iter()
-            .flat_map(|x| Transaction::from_up(x, &accounts))
-            .filter(|x| !is_outgoing_transfer(x))
-            .inspect(|x| info!("{x:?}"))
-            .map(|x| x.to_ynab())
-            .collect::<Result<Vec<_>>>()?;
+    info!("creating ynab transactions...");
+    let num_transactions = ynab_transactions.len();
+    let response = ynab_client
+        .new_transactions()
+        .budget_id(budget_id)
+        .transactions(ynab_transactions)
+        .send()
+        .await?;
 
-        if !errs.is_empty() {
-            return Err(eyre!("failed to get transactions: {:?}", errs));
-        }
+    let num_missing =
+        num_transactions - response.transactions.as_ref().unwrap_or(&Vec::new()).len();
 
-        info!("creating ynab transactions...");
-        let response = ynab_client
-            .new_transactions(budget_id, &transactions)
-            .await?;
+    if num_missing != 0 {
+        return Err(eyre!("failed to create {num_missing} transactions"));
+    }
 
-        let num_missing = transactions.len()
-            - response
-                .data
-                .transactions
-                .as_ref()
-                .unwrap_or(&Vec::new())
-                .len();
-
-        if num_missing != 0 {
-            return Err(eyre!("failed to create {num_missing} transactions"));
-        }
-
-        if let Some(duplicate_ids) = response.data.duplicate_import_ids
-            && !duplicate_ids.is_empty()
-        {
-            return Err(eyre!(
-                "found duplicate transaction ids: {}",
-                duplicate_ids.iter().join(", ")
-            ));
-        }
+    if let Some(duplicate_ids) = response.duplicate_import_ids
+        && !duplicate_ids.is_empty()
+    {
+        return Err(eyre!(
+            "found duplicate transaction ids: {}",
+            duplicate_ids.iter().join(", ")
+        ));
     }
 
     Ok(())
+}
+
+async fn fetch_accounts(config: &Config) -> Result<Vec<Account>> {
+    let up_client = up::Client::new(&config.up.api_token);
+    let ynab_client = ynab::Client::new(&config.ynab.api_token);
+    let budget_id = config
+        .ynab
+        .budget_id
+        .as_ref()
+        .wrap_err("missing ynab budget id")?;
+
+    // TODO: remove double collect
+    let up_accounts: Vec<_> = up_client
+        .accounts()
+        .send()?
+        .inspect_err(|e| error!("failed to fetch up account: {e}"))
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+
+    let ynab_accounts = ynab_client.accounts().budget_id(budget_id).send().await?;
+
+    let accounts = up_accounts
+        .into_iter()
+        .map(|up_account| {
+            let up_account_name = up_account.attributes.display_name;
+            let ynab_account = ynab_accounts
+                .iter()
+                .find(|x| x.name == up_account_name)
+                .wrap_err(format!(
+                    "failed to find matching ynab account for up account `{up_account_name}`"
+                ))?;
+            Ok(Account {
+                name: up_account_name,
+                up_id: up_account.id,
+                ynab_id: ynab_account.id,
+                ynab_transfer_id: ynab_account
+                    .transfer_payee_id
+                    .wrap_err("missing ynab transfer id")?,
+            })
+        })
+        .collect::<Result<Vec<Account>>>()?;
+
+    Ok(accounts)
 }
 
 fn install_tracing() {

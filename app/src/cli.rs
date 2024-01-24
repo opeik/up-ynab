@@ -20,7 +20,7 @@ pub enum Commands {
     /// Fetches Up transactions.
     GetUpTransactions {
         #[arg(long)]
-        from: Option<DateTime<FixedOffset>>,
+        since: Option<DateTime<FixedOffset>>,
         #[arg(long)]
         until: Option<DateTime<FixedOffset>>,
     },
@@ -31,12 +31,12 @@ pub enum Commands {
     /// Fetches YNAB transactions.
     GetYnabTransactions {
         #[arg(long)]
-        from: Option<DateTime<FixedOffset>>,
+        since: Option<DateTime<FixedOffset>>,
     },
     /// Syncs transactions from Up to YNAB.
     Sync {
         #[arg(long)]
-        from: Option<DateTime<FixedOffset>>,
+        since: Option<DateTime<FixedOffset>>,
         #[arg(long)]
         until: Option<DateTime<FixedOffset>>,
     },
