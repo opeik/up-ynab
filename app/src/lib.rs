@@ -5,11 +5,17 @@ pub mod config;
 pub mod up;
 pub mod ynab;
 
-use std::str::FromStr;
+use std::{
+    fs::File,
+    io::BufReader,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use chrono::{DateTime, FixedOffset};
 use color_eyre::eyre::{Context, ContextCompat, Result};
 use money2::{Currency, Money};
+use tracing::{debug, info};
 use uuid::Uuid;
 use ynab_client::models::TransactionClearedStatus;
 
@@ -33,6 +39,11 @@ pub struct Account {
     pub up_id: String,
     pub ynab_id: Uuid,
     pub ynab_transfer_id: Uuid,
+}
+
+#[derive(Clone, Debug)]
+pub struct Run {
+    pub up_transactions: Vec<UpTransaction>,
 }
 
 pub type Accounts = [Account];
@@ -123,7 +134,6 @@ impl Transaction {
             memo: self.msg.clone().map(Some),
             cleared: Some(TransactionClearedStatus::Cleared),
             approved: Some(true),
-            // account_id: Some(Uuid::parse_str("79d01174-1056-4f44-a3a3-248483eb51d0")?),
             account_id: None,
             payee_id: None,
             payee_name: None,
@@ -145,6 +155,59 @@ impl Transaction {
         }
 
         Ok(transaction)
+    }
+}
+
+impl Run {
+    pub fn write<P: AsRef<Path>>(run_path: P, run: &Run) -> Result<()> {
+        for transaction in &run.up_transactions {
+            Self::write_up_transaction(run_path.as_ref(), transaction)?;
+        }
+
+        debug!(
+            "wrote {} up transactions to `{}`",
+            run.up_transactions.len(),
+            run_path.as_ref().to_string_lossy()
+        );
+
+        Ok(())
+    }
+
+    pub fn write_up_transaction<P: AsRef<Path>>(
+        path: P,
+        transaction: &UpTransaction,
+    ) -> Result<()> {
+        let transactions_path = path.as_ref().join("up_transactions");
+        std::fs::create_dir_all(&transactions_path)?;
+
+        let file_path = transactions_path.join(format!(
+            "{}-{}.json",
+            transaction.attributes.created_at, transaction.id
+        ));
+        let file = File::create_new(file_path)?;
+        serde_json::to_writer_pretty(file, &transaction)?;
+        Ok(())
+    }
+
+    pub fn read<P: AsRef<Path>>(path: P) -> Result<Run> {
+        let up_transactions_path = path.as_ref().join("up_transactions");
+
+        let up_transactions = std::fs::read_dir(up_transactions_path)?
+            .map(|file_path| {
+                let file = File::open(file_path?.path())?;
+                let reader = BufReader::new(file);
+                let up_transaction: UpTransaction = serde_json::from_reader(reader)?;
+                Ok(up_transaction)
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        debug!(
+            "read {} up transactions from `{}`",
+            up_transactions.len(),
+            path.as_ref().to_string_lossy()
+        );
+
+        Ok(Run { up_transactions })
     }
 }
 

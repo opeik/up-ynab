@@ -40,6 +40,9 @@ pub enum Commands {
         #[arg(long)]
         until: Option<DateTime<FixedOffset>>,
     },
-    /// Configures up-ynab.
-    Setup,
+    /// Load an past run.
+    LoadRun {
+        #[arg(long)]
+        path: PathBuf,
+    },
 }

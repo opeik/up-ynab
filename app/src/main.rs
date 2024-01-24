@@ -1,9 +1,9 @@
 #![feature(let_chains)]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, FixedOffset, Utc};
 use clap::Parser;
-use color_eyre::eyre::{eyre, ContextCompat, Error, Result};
+use color_eyre::eyre::{eyre, ContextCompat, Result};
 use figment::{
     providers::{Format, Toml},
     Figment,
@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
         Commands::GetYnabBudgets => get_ynab_budgets(&config).await?,
         Commands::GetYnabTransactions { since } => get_ynab_transactions(&config, since).await?,
         Commands::Sync { since, until } => sync(&config, since, until).await?,
-        Commands::Setup => todo!(),
+        Commands::LoadRun { path } => load_run(path)?,
     }
 
     Ok(())
@@ -72,9 +72,17 @@ async fn get_up_transactions(
         .send()?
         .inspect_err(|e| error!("failed to fetch transaction: {e}"));
 
+    let date = Utc::now().to_rfc3339();
+    let run_path = PathBuf::from(format!("data/run_{date}"));
+
+    let mut count = 0;
     while let Some(Ok(transaction)) = transactions.next().await {
-        info!("{transaction:?}");
+        Run::write_up_transaction(&run_path, &transaction)?;
+        count += 1;
     }
+
+    info!("done, fetched {count} up transactions!");
+    info!("written run to `{}`", run_path.to_string_lossy());
 
     Ok(())
 }
@@ -257,6 +265,14 @@ async fn fetch_accounts(config: &Config) -> Result<Vec<Account>> {
 
     info!("matched {} up accounts to ynab accounts", accounts.len());
     Ok(accounts)
+}
+
+fn load_run<P: AsRef<Path>>(run_path: P) -> Result<()> {
+    let run = Run::read(run_path)?;
+
+    for up_transaction in run.up_transactions {}
+
+    Ok(())
 }
 
 fn install_tracing() {

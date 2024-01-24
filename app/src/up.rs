@@ -91,7 +91,7 @@ macro_rules! stream_pages_impl {
                     return Ok(None);
                 }
 
-                debug!("fetching page {}", state.count);
+                debug!("fetching page {}...", state.count);
                 let response = self
                     .$page_fn(state.next.as_deref(), state.args.clone())
                     .await?;
