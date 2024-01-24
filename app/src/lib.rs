@@ -123,7 +123,8 @@ impl Transaction {
             memo: self.msg.clone().map(Some),
             cleared: Some(TransactionClearedStatus::Cleared),
             approved: Some(true),
-            account_id: Some(Uuid::parse_str("79d01174-1056-4f44-a3a3-248483eb51d0")?),
+            // account_id: Some(Uuid::parse_str("79d01174-1056-4f44-a3a3-248483eb51d0")?),
+            account_id: None,
             payee_id: None,
             payee_name: None,
             category_id: None,
@@ -134,13 +135,12 @@ impl Transaction {
 
         match &self.kind {
             Kind::Expense { to, from_name } => {
-                // transaction.account_id = Some(to.ynab_id);
+                transaction.account_id = Some(to.ynab_id);
                 transaction.payee_name = Some(Some(from_name.clone()));
             }
             Kind::Transfer { to, from } => {
-                // transaction.account_id = Some(to.ynab_id);
-                // transaction.payee_id = Some(Some(from.ynab_transfer_id));
-                transaction.payee_name = Some(Some(from.name.clone()));
+                transaction.account_id = Some(to.ynab_id);
+                transaction.payee_id = Some(Some(from.ynab_transfer_id));
             }
         }
 
