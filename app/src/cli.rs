@@ -9,6 +9,14 @@ pub struct Cli {
     #[arg(long, value_name = "FILE")]
     pub config: Option<PathBuf>,
 
+    /// Previous run path.
+    #[arg(long, value_name = "FILE")]
+    pub run_path: Option<PathBuf>,
+
+    /// Run command without making any changes.
+    #[arg(long, default_value = "false")]
+    pub dry_run: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -39,10 +47,5 @@ pub enum Commands {
     GetYnabTransactions {
         #[arg(long)]
         since: Option<DateTime<FixedOffset>>,
-    },
-    /// Load an past run.
-    LoadRun {
-        #[arg(long)]
-        path: PathBuf,
     },
 }

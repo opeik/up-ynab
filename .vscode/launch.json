@@ -12,14 +12,17 @@
                 "args": [
                     "build",
                     "--bin=up_ynab",
-                    "--package=up_ynab"
+                    "--package=up_ynab",
                 ],
                 "filter": {
                     "name": "up_ynab",
                     "kind": "bin"
                 }
             },
-            "args": [],
+            "args": [
+                "--run-path=${workspaceFolder}/runs/2024-01-27T09:18:01.016599+00:00",
+                "sync-transactions"
+            ],
             "cwd": "${workspaceFolder}"
         },
         {
