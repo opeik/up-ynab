@@ -1,7 +1,7 @@
 #![feature(let_chains)]
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{DateTime, FixedOffset};
 use clap::Parser;
 use color_eyre::eyre::{eyre, ContextCompat, Result};
 use figment::{
@@ -12,6 +12,7 @@ use futures::{StreamExt, TryStreamExt};
 use itertools::Itertools;
 use tracing::{error, info};
 use up_ynab::*;
+use ynab_client::apis::accounts_api::get_accounts;
 
 use crate::{
     cli::{Cli, Commands},
@@ -46,12 +47,14 @@ async fn main() -> Result<()> {
 }
 
 async fn get_up_accounts(config: &Config) -> Result<()> {
+    let run = Run::new();
     let up_client = up::Client::new(&config.up.api_token);
 
     info!("fetching up accounts...");
     let mut accounts = up_client.accounts().send()?;
     while let Some(account) = accounts.try_next().await? {
         info!("{}: {}", account.id, account.attributes.display_name);
+        run.write_up_accounts(&[account])?;
     }
 
     Ok(())
@@ -63,6 +66,7 @@ async fn get_up_transactions(
     until: Option<DateTime<FixedOffset>>,
 ) -> Result<()> {
     let up_client = up::Client::new(&config.up.api_token);
+    let run = Run::new();
 
     info!("fetching up transactions...");
     let mut transactions = up_client
@@ -72,17 +76,14 @@ async fn get_up_transactions(
         .send()?
         .inspect_err(|e| error!("failed to fetch transaction: {e}"));
 
-    let date = Utc::now().to_rfc3339();
-    let run_path = PathBuf::from(format!("data/run_{date}"));
-
     let mut count = 0;
     while let Some(Ok(transaction)) = transactions.next().await {
-        Run::write_up_transaction(&run_path, &transaction)?;
+        run.write_up_transactions(&[transaction])?;
         count += 1;
     }
 
     info!("done, fetched {count} up transactions!");
-    info!("written run to `{}`", run_path.to_string_lossy());
+    info!("written run to `{}`", run.path.to_string_lossy());
 
     Ok(())
 }
@@ -91,6 +92,7 @@ async fn get_ynab_transactions(
     config: &Config,
     since: Option<DateTime<FixedOffset>>,
 ) -> Result<()> {
+    let run = Run::new();
     let ynab_client = ynab::Client::new(&config.ynab.api_token);
     let budget_id = config
         .ynab
@@ -105,15 +107,13 @@ async fn get_ynab_transactions(
         .since_date(since)
         .send()
         .await?;
-
-    for transaction in transactions {
-        info!("{transaction:?}");
-    }
+    run.write_ynab_transactions(&transactions)?;
 
     Ok(())
 }
 
 async fn get_ynab_accounts(config: &Config) -> Result<()> {
+    let run = Run::new();
     let ynab_client = ynab::Client::new(&config.ynab.api_token);
     let budget_id = config
         .ynab
@@ -123,7 +123,7 @@ async fn get_ynab_accounts(config: &Config) -> Result<()> {
 
     info!("fetching ynab accounts...");
     let accounts = ynab_client.accounts().budget_id(budget_id).send().await?;
-    for account in accounts {
+    for account in &accounts {
         info!(
             "{}\nid: {}\ntransfer_id: {}",
             account.name,
@@ -131,6 +131,8 @@ async fn get_ynab_accounts(config: &Config) -> Result<()> {
             account.transfer_payee_id.map(|x| x.to_string()).unwrap(),
         );
     }
+
+    run.write_ynab_accounts(&accounts)?;
 
     Ok(())
 }
@@ -152,9 +154,10 @@ async fn sync(
     since: Option<DateTime<FixedOffset>>,
     until: Option<DateTime<FixedOffset>>,
 ) -> Result<()> {
+    let run = Run::new();
     let up_client = up::Client::new(&config.up.api_token);
     let ynab_client = ynab::Client::new(&config.ynab.api_token);
-    let accounts = fetch_accounts(config).await?;
+    let accounts = fetch_accounts(config, &run).await?;
 
     let budget_id = config
         .ynab
@@ -170,49 +173,60 @@ async fn sync(
         .send()?
         .collect::<Vec<_>>()
         .await;
-
     let (oks, errs): (Vec<_>, Vec<_>) = up_transactions.into_iter().partition_result();
-    let ynab_transactions = oks
-        .into_iter()
-        .flat_map(|x| Transaction::from_up(x, &accounts))
-        // .filter(|x| !is_outgoing_transfer(x))
-        .inspect(|x| info!("{x:?}"))
-        .map(|x| x.to_ynab())
-        .collect::<Result<Vec<_>>>()?;
+    run.write_up_transactions(&oks)?;
 
-    for e in errs {
-        error!("failed to convert transaction: {e}");
-    }
-
-    info!("creating ynab transactions...");
-    let num_transactions = ynab_transactions.len();
-    let response = ynab_client
-        .new_transactions()
+    info!("fetching ynab transactions...");
+    let ynab_transactions = ynab_client
+        .transactions()
         .budget_id(budget_id)
-        .transactions(ynab_transactions)
+        .since_date(since)
         .send()
         .await?;
+    run.write_ynab_transactions(&ynab_transactions)?;
 
-    let num_missing =
-        num_transactions - response.transactions.as_ref().unwrap_or(&Vec::new()).len();
+    // let new_ynab_transactions = oks
+    //     .into_iter()
+    //     .flat_map(|x| Transaction::from_up(x, &accounts))
+    //     // .filter(|x| !is_outgoing_transfer(x))
+    //     .inspect(|x| info!("{x:?}"))
+    //     .map(|x| x.to_ynab())
+    //     .collect::<Result<Vec<_>>>()?;
+    // run.write_ynab_transactions(&ynab_transactions)?;
 
-    if num_missing != 0 {
-        return Err(eyre!("failed to create {num_missing} transactions"));
-    }
+    // for e in errs {
+    //     error!("failed to convert transaction: {e}");
+    // }
 
-    if let Some(duplicate_ids) = response.duplicate_import_ids
-        && !duplicate_ids.is_empty()
-    {
-        return Err(eyre!(
-            "found duplicate transaction ids: {}",
-            duplicate_ids.iter().join(", ")
-        ));
-    }
+    // info!("creating ynab transactions...");
+    // let num_transactions = ynab_transactions.len();
+    // let response = ynab_client
+    //     .new_transactions()
+    //     .budget_id(budget_id)
+    //     .transactions(ynab_transactions)
+    //     .send()
+    //     .await?;
+
+    // let num_missing =
+    //     num_transactions - response.transactions.as_ref().unwrap_or(&Vec::new()).len();
+
+    // if num_missing != 0 {
+    //     return Err(eyre!("failed to create {num_missing} transactions"));
+    // }
+
+    // if let Some(duplicate_ids) = response.duplicate_import_ids
+    //     && !duplicate_ids.is_empty()
+    // {
+    //     return Err(eyre!(
+    //         "found duplicate transaction ids: {}",
+    //         duplicate_ids.iter().join(", ")
+    //     ));
+    // }
 
     Ok(())
 }
 
-async fn fetch_accounts(config: &Config) -> Result<Vec<Account>> {
+async fn fetch_accounts(config: &Config, run: &Run) -> Result<Vec<Account>> {
     let up_client = up::Client::new(&config.up.api_token);
     let ynab_client = ynab::Client::new(&config.ynab.api_token);
     let budget_id = config
@@ -232,9 +246,11 @@ async fn fetch_accounts(config: &Config) -> Result<Vec<Account>> {
         .flatten()
         .collect::<Vec<_>>();
     info!("found {} up accounts", up_accounts.len());
+    run.write_up_accounts(&up_accounts)?;
 
     let ynab_accounts = ynab_client.accounts().budget_id(budget_id).send().await?;
     info!("found {} ynab accounts", up_accounts.len());
+    run.write_ynab_accounts(&ynab_accounts)?;
 
     let accounts = up_accounts
         .into_iter()
@@ -263,13 +279,12 @@ async fn fetch_accounts(config: &Config) -> Result<Vec<Account>> {
         .flatten()
         .collect::<Vec<Account>>();
 
-    info!("matched {} up accounts to ynab accounts", accounts.len());
+    info!("found {} matching accounts", accounts.len());
     Ok(accounts)
 }
 
 fn load_run<P: AsRef<Path>>(run_path: P) -> Result<()> {
-    let run = Run::read(run_path)?;
-    for _up_transaction in run.up_transactions {}
+    let _run = Run::read(run_path)?;
 
     Ok(())
 }
