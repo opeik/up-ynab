@@ -139,18 +139,33 @@ pub async fn fetch_run(
     Ok(run)
 }
 
-pub async fn sync(
-    config: &Config,
-    run_path: Option<&Path>,
-    since: Option<DateTime<FixedOffset>>,
-    until: Option<DateTime<FixedOffset>>,
-) -> Result<()> {
-    let ynab_client = ynab::Client::new(&config.ynab.api_token);
+#[derive(Debug, Clone)]
+pub struct TransferPair<'a> {
+    pub to: &'a Transaction,
+    pub from: &'a Transaction,
+}
 
-    let run = if let Some(run_path) = run_path {
+pub struct SyncArgs<'a> {
+    pub config: &'a Config,
+    pub run_path: Option<&'a Path>,
+    pub since: Option<DateTime<FixedOffset>>,
+    pub until: Option<DateTime<FixedOffset>>,
+    pub dry_run: Option<bool>,
+}
+
+pub async fn sync(args: SyncArgs<'_>) -> Result<()> {
+    let ynab_client = ynab::Client::new(&args.config.ynab.api_token);
+    let budget_id = args
+        .config
+        .ynab
+        .budget_id
+        .as_ref()
+        .wrap_err("missing budget id")?;
+
+    let run = if let Some(run_path) = args.run_path {
         Run::read(run_path)?
     } else {
-        fetch_run(config, since, until).await?
+        fetch_run(args.config, args.since, args.until).await?
     };
 
     let accounts = match_accounts(
@@ -176,20 +191,100 @@ pub async fn sync(
                 transaction::Kind::Transfer { to: _, from: _ } => false,
             });
 
+    let (matched, unmatched) = match_transfers(&transfers)?;
+    let (roundups, non_roundups) = unmatched.iter().partition::<Vec<&Transaction>, _>(|x| {
+        x.msg.as_ref().map(|x| x == "Round Up").unwrap_or_default()
+    });
+
+    if !non_roundups.is_empty() {
+        return Err(eyre!("found sussy transactions: {non_roundups:?}"));
+    }
+
+    info!(
+        "found {} expenses, {} transfers, {} roundups",
+        expenses.len(),
+        matched.len() * 2,
+        roundups.len(),
+    );
+
+    // let test = run
+    //     .ynab_transactions
+    //     .unwrap_or_default()
+    //     .into_iter()
+    //     .map(|x| Transaction::from_ynab(x, &accounts))
+    //     .inspect(|x| {
+    //         if let Err(e) = x {
+    //             error!("failed to convert ynab transaction: {e}");
+    //         }
+    //     })
+    //     .flatten()
+    //     .collect::<Vec<_>>();
+
+    let transactions = expenses
+        .iter()
+        .chain(roundups.into_iter())
+        .chain(non_roundups.into_iter())
+        .chain(matched.iter().map(|pair| pair.from))
+        .collect::<Vec<_>>();
+
+    let new_ynab_transactions = transactions
+        .iter()
+        .map(|x| x.to_ynab())
+        .inspect(|x| {
+            if let Err(e) = x {
+                error!("failed to convert to new ynab transaction: {e}")
+            }
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    if args.dry_run.unwrap_or_default() {
+        info!("dry run, skipping creating ynab transactions");
+        return Ok(());
+    }
+
+    info!("creating ynab transactions...");
+    let num_transactions = new_ynab_transactions.len();
+    let response = ynab_client
+        .new_transactions()
+        .budget_id(budget_id)
+        .transactions(new_ynab_transactions)
+        .send()
+        .await?;
+
+    let num_missing =
+        num_transactions - response.transactions.as_ref().unwrap_or(&Vec::new()).len();
+
+    if num_missing != 0 {
+        return Err(eyre!("failed to create {num_missing} transactions"));
+    }
+
+    if let Some(duplicate_ids) = response.duplicate_import_ids
+        && !duplicate_ids.is_empty()
+    {
+        return Err(eyre!(
+            "found duplicate transaction ids: {}",
+            duplicate_ids.iter().join(", ")
+        ));
+    }
+
+    Ok(())
+}
+
+fn match_transfers(transfers: &[Transaction]) -> Result<(Vec<TransferPair>, Vec<&Transaction>)> {
+    let mut matched = Vec::new();
+    let mut unmatched = Vec::new();
+
     let groups = transfers
         .iter()
         .into_group_map_by(|x| x.amount.amount.abs());
-
-    let mut matched = Vec::new();
-    let mut unmatched = Vec::new();
 
     // TODO: make less gross
     for group in &groups {
         let (mut tos, mut froms) = group
             .1
             .iter()
-            .map(Some)
-            .partition::<Vec<Option<&&Transaction>>, _>(|x| {
+            .map(|x| Some(*x))
+            .partition::<Vec<Option<&Transaction>>, _>(|x| {
                 x.unwrap().amount.amount.is_sign_negative()
             });
 
@@ -201,7 +296,10 @@ pub async fn sync(
                 {
                     let d = (from_inner.time - to_inner.time).abs();
                     if d <= Duration::seconds(15) {
-                        pairs.push((*to_inner, *from_inner));
+                        pairs.push(TransferPair {
+                            to: to_inner,
+                            from: from_inner,
+                        });
                         *to = None;
                         *from = None;
                     }
@@ -219,61 +317,7 @@ pub async fn sync(
         unmatched.append(&mut remainder);
     }
 
-    let (roundups, non_roundups) = unmatched
-        .into_iter()
-        .partition::<Vec<&&Transaction>, _>(|x| {
-            x.msg.as_ref().map(|x| x == "Round Up").unwrap_or_default()
-        });
-
-    if !non_roundups.is_empty() {
-        return Err(eyre!("found sussy transactions: {non_roundups:?}"));
-    }
-
-    info!(
-        "found {} expenses, {} transfers, {} roundups",
-        expenses.len(),
-        matched.len() * 2,
-        roundups.len(),
-    );
-
-    // let new_ynab_transactions = oks
-    //     .into_iter()
-    //     .flat_map(|x| Transaction::from_up(x, &accounts))
-    //     // .filter(|x| !is_outgoing_transfer(x))
-    //     .inspect(|x| info!("{x:?}"))
-    //     .map(|x| x.to_ynab())
-    //     .collect::<Result<Vec<_>>>()?;
-
-    // for e in errs {
-    //     error!("failed to convert transaction: {e}");
-    // }
-
-    // info!("creating ynab transactions...");
-    // let num_transactions = ynab_transactions.len();
-    // let response = ynab_client
-    //     .new_transactions()
-    //     .budget_id(budget_id)
-    //     .transactions(ynab_transactions)
-    //     .send()
-    //     .await?;
-
-    // let num_missing =
-    //     num_transactions - response.transactions.as_ref().unwrap_or(&Vec::new()).len();
-
-    // if num_missing != 0 {
-    //     return Err(eyre!("failed to create {num_missing} transactions"));
-    // }
-
-    // if let Some(duplicate_ids) = response.duplicate_import_ids
-    //     && !duplicate_ids.is_empty()
-    // {
-    //     return Err(eyre!(
-    //         "found duplicate transaction ids: {}",
-    //         duplicate_ids.iter().join(", ")
-    //     ));
-    // }
-
-    Ok(())
+    Ok((matched, unmatched))
 }
 
 pub fn match_accounts(
@@ -410,6 +454,7 @@ impl Run {
     }
 
     pub fn read<P: AsRef<Path>>(path: P) -> Result<Run> {
+        info!("opening run: `{}", path.as_ref().to_string_lossy());
         Ok(Run {
             path: path.as_ref().to_path_buf(),
             up_transactions: Some(Self::read_up_transactions(path.as_ref())?),
@@ -453,6 +498,17 @@ impl Run {
 
     fn read_entries<T: DeserializeOwned, P: AsRef<Path>>(path: P) -> Result<Vec<T>> {
         let path_str = path.as_ref().to_string_lossy();
+        if !path.as_ref().exists() {
+            error!(
+                "run component `{}` missing, skipping...",
+                path.as_ref()
+                    .file_name()
+                    .wrap_err("missing dir")?
+                    .to_string_lossy()
+            );
+            return Ok(Vec::new());
+        }
+
         let entries = fs::read_dir(&path)
             .wrap_err(format!("failed to load run `{path_str}`",))?
             .map(|file_path| Self::read_entry::<T, _>(file_path?.path()))

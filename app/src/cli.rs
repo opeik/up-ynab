@@ -14,7 +14,7 @@ pub struct Cli {
     pub run_path: Option<PathBuf>,
 
     /// Run command without making any changes.
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value_t = false)]
     pub dry_run: bool,
 
     #[command(subcommand)]

@@ -5,7 +5,7 @@ use color_eyre::eyre::{Context, ContextCompat, Result};
 use money2::{Currency, Money};
 use ynab_client::models::TransactionClearedStatus;
 
-use crate::{Account, NewYnabTransaction, UpTransaction};
+use crate::{Account, NewYnabTransaction, UpTransaction, YnabTransaction};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
@@ -91,6 +91,61 @@ impl Transaction {
             msg,
             kind,
             time: DateTime::parse_from_rfc3339(&value.attributes.created_at)?,
+        })
+    }
+
+    pub fn from_ynab(value: YnabTransaction, accounts: &[Account]) -> Result<Self> {
+        let to = accounts
+            .iter()
+            .find(|account| account.ynab_id == value.account_id)
+            .map(|account| account.to_owned())
+            .wrap_err("failed to match incoming ynab account")?;
+
+        let from = match &value.transfer_account_id {
+            Some(Some(transfer_account)) => Some(
+                accounts
+                    .iter()
+                    .find(|account| account.ynab_transfer_id == *transfer_account)
+                    .map(|account| account.to_owned())
+                    .wrap_err("failed to match outgoing ynab account")?,
+            ),
+            _ => None,
+        };
+
+        let kind = if let Some(from) = from {
+            Kind::Transfer { to, from }
+        } else {
+            Kind::Expense {
+                to,
+                from_name: value
+                    .payee_name
+                    .clone()
+                    .wrap_err("missing payee name")?
+                    .wrap_err("missing payee name")?,
+            }
+        };
+
+        let msg = match &kind {
+            Kind::Expense {
+                to: _,
+                from_name: _,
+            } => value.memo,
+            Kind::Transfer { to: _, from: _ } => value.memo,
+        }
+        .wrap_err("missing memo")?;
+
+        let amount = Money::new(
+            value.amount / 10,
+            2,
+            // TODO: get from budget
+            Currency::from_str("AUD")?,
+        );
+
+        Ok(Self {
+            amount,
+            msg,
+            kind,
+            time: DateTime::parse_from_rfc3339(&value.date)?,
         })
     }
 
