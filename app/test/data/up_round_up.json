@@ -1,0 +1,68 @@
+{
+    "type": "transactions",
+    "id": "a0f9976c-d0ac-4cef-afd6-91bbc0033730",
+    "attributes": {
+        "status": "SETTLED",
+        "rawText": "AMAZON MARKETPLAC,SYDNEY SOUTH",
+        "description": "Amazon",
+        "message": null,
+        "isCategorizable": true,
+        "holdInfo": {
+            "amount": {
+                "currencyCode": "AUD",
+                "value": "-12.99",
+                "valueInBaseUnits": -1299
+            },
+            "foreignAmount": null
+        },
+        "roundUp": {
+            "amount": {
+                "currencyCode": "AUD",
+                "value": "-0.01",
+                "valueInBaseUnits": -1
+            },
+            "boostPortion": null
+        },
+        "cashback": null,
+        "amount": {
+            "currencyCode": "AUD",
+            "value": "-12.99",
+            "valueInBaseUnits": -1299
+        },
+        "foreignAmount": null,
+        "settledAt": "2023-12-30T02:17:02+11:00",
+        "createdAt": "2023-12-28T22:49:40+11:00"
+    },
+    "relationships": {
+        "account": {
+            "data": {
+                "type": "accounts",
+                "id": "2be1c9de-7a89-4e8f-8077-f535150b588d"
+            },
+            "links": {
+                "related": "https://api.up.com.au/api/v1/accounts/2be1c9de-7a89-4e8f-8077-f535150b588d"
+            }
+        },
+        "transferAccount": {
+            "data": null
+        },
+        "category": {
+            "data": null,
+            "links": {
+                "self": "https://api.up.com.au/api/v1/transactions/a0f9976c-d0ac-4cef-afd6-91bbc0033730/relationships/category"
+            }
+        },
+        "parentCategory": {
+            "data": null
+        },
+        "tags": {
+            "data": [],
+            "links": {
+                "self": "https://api.up.com.au/api/v1/transactions/a0f9976c-d0ac-4cef-afd6-91bbc0033730/relationships/tags"
+            }
+        }
+    },
+    "links": {
+        "self": "https://api.up.com.au/api/v1/transactions/a0f9976c-d0ac-4cef-afd6-91bbc0033730"
+    }
+}

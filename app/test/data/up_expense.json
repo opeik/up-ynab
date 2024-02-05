@@ -1,0 +1,71 @@
+{
+    "type": "transactions",
+    "id": "5ce7c223-0188-4b68-8d19-227a7cc3464d",
+    "attributes": {
+        "status": "SETTLED",
+        "rawText": "7 ELEVEN",
+        "description": "7-Eleven",
+        "message": null,
+        "isCategorizable": true,
+        "holdInfo": {
+            "amount": {
+                "currencyCode": "AUD",
+                "value": "-57.84",
+                "valueInBaseUnits": -5784
+            },
+            "foreignAmount": null
+        },
+        "roundUp": null,
+        "cashback": null,
+        "amount": {
+            "currencyCode": "AUD",
+            "value": "-57.84",
+            "valueInBaseUnits": -5784
+        },
+        "foreignAmount": null,
+        "settledAt": "2023-12-04T01:24:58+11:00",
+        "createdAt": "2023-12-02T13:44:15+11:00"
+    },
+    "relationships": {
+        "account": {
+            "data": {
+                "type": "accounts",
+                "id": "2be1c9de-7a89-4e8f-8077-f535150b588d"
+            },
+            "links": {
+                "related": "https://api.up.com.au/api/v1/accounts/2be1c9de-7a89-4e8f-8077-f535150b588d"
+            }
+        },
+        "transferAccount": {
+            "data": null
+        },
+        "category": {
+            "data": {
+                "type": "categories",
+                "id": "fuel"
+            },
+            "links": {
+                "self": "https://api.up.com.au/api/v1/transactions/5ce7c223-0188-4b68-8d19-227a7cc3464d/relationships/category",
+                "related": "https://api.up.com.au/api/v1/categories/fuel"
+            }
+        },
+        "parentCategory": {
+            "data": {
+                "type": "categories",
+                "id": "transport"
+            },
+            "links": {
+                "related": "https://api.up.com.au/api/v1/categories/transport"
+            }
+        },
+        "tags": {
+            "data": [],
+            "links": {
+                "self": "https://api.up.com.au/api/v1/transactions/5ce7c223-0188-4b68-8d19-227a7cc3464d/relationships/tags"
+            }
+        }
+    },
+    "links": {
+        "self": "https://api.up.com.au/api/v1/transactions/5ce7c223-0188-4b68-8d19-227a7cc3464d"
+    }
+}

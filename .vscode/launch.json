@@ -20,8 +20,9 @@
                 }
             },
             "args": [
-                "--run-path=${workspaceFolder}/runs/2024-01-27T09:18:01.016599+00:00",
-                "sync-transactions"
+                "balance",
+                "up",
+                "--run-path=${workspaceFolder}/runs/2024-02-04T15:38:49.464103+00:00",
             ],
             "cwd": "${workspaceFolder}"
         },

@@ -1,0 +1,57 @@
+{
+    "type": "transactions",
+    "id": "66e3f7f3-e766-4095-adbb-19f3e1271646",
+    "attributes": {
+        "status": "SETTLED",
+        "rawText": null,
+        "description": "Round Up",
+        "message": null,
+        "isCategorizable": false,
+        "holdInfo": null,
+        "roundUp": null,
+        "cashback": null,
+        "amount": {
+            "currencyCode": "AUD",
+            "value": "1.00",
+            "valueInBaseUnits": 100
+        },
+        "foreignAmount": null,
+        "settledAt": "2023-08-03T13:07:33+10:00",
+        "createdAt": "2023-08-03T13:07:33+10:00"
+    },
+    "relationships": {
+        "account": {
+            "data": {
+                "type": "accounts",
+                "id": "328160b1-d7bc-41ee-9d7b-c7da4f2484b0"
+            },
+            "links": {
+                "related": "https://api.up.com.au/api/v1/accounts/328160b1-d7bc-41ee-9d7b-c7da4f2484b0"
+            }
+        },
+        "transferAccount": {
+            "data": {
+                "type": "accounts",
+                "id": "2be1c9de-7a89-4e8f-8077-f535150b588d"
+            },
+            "links": {
+                "related": "https://api.up.com.au/api/v1/accounts/2be1c9de-7a89-4e8f-8077-f535150b588d"
+            }
+        },
+        "category": {
+            "data": null
+        },
+        "parentCategory": {
+            "data": null
+        },
+        "tags": {
+            "data": [],
+            "links": {
+                "self": "https://api.up.com.au/api/v1/transactions/66e3f7f3-e766-4095-adbb-19f3e1271646/relationships/tags"
+            }
+        }
+    },
+    "links": {
+        "self": "https://api.up.com.au/api/v1/transactions/66e3f7f3-e766-4095-adbb-19f3e1271646"
+    }
+}

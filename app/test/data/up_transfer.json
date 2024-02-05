@@ -1,0 +1,57 @@
+{
+    "type": "transactions",
+    "id": "f1b6981f-94d2-42b6-9cae-304dae08a480",
+    "attributes": {
+        "status": "SETTLED",
+        "rawText": null,
+        "description": "Transfer from Home",
+        "message": "",
+        "isCategorizable": false,
+        "holdInfo": null,
+        "roundUp": null,
+        "cashback": null,
+        "amount": {
+            "currencyCode": "AUD",
+            "value": "37.94",
+            "valueInBaseUnits": 3794
+        },
+        "foreignAmount": null,
+        "settledAt": "2023-12-07T22:35:56+11:00",
+        "createdAt": "2023-12-07T22:35:56+11:00"
+    },
+    "relationships": {
+        "account": {
+            "data": {
+                "type": "accounts",
+                "id": "2be1c9de-7a89-4e8f-8077-f535150b588d"
+            },
+            "links": {
+                "related": "https://api.up.com.au/api/v1/accounts/2be1c9de-7a89-4e8f-8077-f535150b588d"
+            }
+        },
+        "transferAccount": {
+            "data": {
+                "type": "accounts",
+                "id": "328160b1-d7bc-41ee-9d7b-c7da4f2484b0"
+            },
+            "links": {
+                "related": "https://api.up.com.au/api/v1/accounts/328160b1-d7bc-41ee-9d7b-c7da4f2484b0"
+            }
+        },
+        "category": {
+            "data": null
+        },
+        "parentCategory": {
+            "data": null
+        },
+        "tags": {
+            "data": [],
+            "links": {
+                "self": "https://api.up.com.au/api/v1/transactions/f1b6981f-94d2-42b6-9cae-304dae08a480/relationships/tags"
+            }
+        }
+    },
+    "links": {
+        "self": "https://api.up.com.au/api/v1/transactions/f1b6981f-94d2-42b6-9cae-304dae08a480"
+    }
+}

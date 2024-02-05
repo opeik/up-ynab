@@ -27,20 +27,38 @@ async fn main() -> Result<()> {
             cli.config.unwrap_or(PathBuf::from("config.toml")),
         ))
         .extract::<Config>()?;
-    let run_path = cli.run_path.as_deref();
-    let dry_run = cli.dry_run;
 
+    use cli::{Balance, GetAccounts, GetTransactions};
     match cli.command {
-        Commands::SyncTransactions { since, until } => {
-            sync(&config, run_path, since, until, Some(dry_run)).await?
-        }
-        Commands::GetUpAccounts => get_up_accounts(&config).await?,
-        Commands::GetUpTransactions { since, until } => {
-            get_up_transactions(&config, since, until).await?
-        }
-        Commands::GetYnabAccounts => get_ynab_accounts(&config).await?,
-        Commands::GetYnabBudgets => get_ynab_budgets(&config).await?,
-        Commands::GetYnabTransactions { since } => get_ynab_transactions(&config, since).await?,
+        Commands::SyncTransactions {
+            since,
+            until,
+            run_path,
+            dry_run,
+        } => sync(&config, run_path.as_deref(), since, until, Some(dry_run)).await?,
+        Commands::GetAccounts(x) => match x {
+            GetAccounts::Up => get_up_accounts(&config).await?,
+            GetAccounts::Ynab => get_ynab_accounts(&config).await?,
+        },
+        Commands::GetTransactions(x) => match x {
+            GetTransactions::Up { since, until } => {
+                get_up_transactions(&config, since, until).await?
+            }
+            GetTransactions::Ynab { since } => get_ynab_transactions(&config, since).await?,
+        },
+        Commands::GetBudgets => get_ynab_budgets(&config).await?,
+        Commands::Balance(x) => match x {
+            Balance::Up {
+                run_path,
+                since,
+                until,
+            } => up_balance(&run_path, since, until)?,
+            Balance::Ynab {
+                run_path,
+                since,
+                until,
+            } => ynab_balance(&run_path, since, until)?,
+        },
     }
 
     Ok(())
@@ -82,9 +100,7 @@ async fn get_ynab_transactions(
 }
 
 async fn get_ynab_budgets(config: &Config) -> Result<()> {
-    info!("fetching ynab budgets...");
-    let ynab_client = ynab::Client::new(&config.ynab.api_token);
-    for budget in ynab_client.budgets().send().await? {
+    for budget in up_ynab::fetch_ynab_budgets(config).await? {
         info!("{budget:?}")
     }
     Ok(())
@@ -105,6 +121,22 @@ async fn sync(
         dry_run,
     })
     .await
+}
+
+fn up_balance(
+    run_path: &Path,
+    since: Option<DateTime<FixedOffset>>,
+    until: Option<DateTime<FixedOffset>>,
+) -> Result<()> {
+    up_ynab::up_balance(run_path, since, until)
+}
+
+fn ynab_balance(
+    run_path: &Path,
+    since: Option<DateTime<FixedOffset>>,
+    until: Option<DateTime<FixedOffset>>,
+) -> Result<()> {
+    up_ynab::ynab_balance(run_path, since, until)
 }
 
 fn install_tracing() {

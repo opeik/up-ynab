@@ -1,0 +1,54 @@
+{
+    "type": "transactions",
+    "id": "9f08959d-51d2-43a8-a45a-154373870094",
+    "attributes": {
+        "status": "SETTLED",
+        "rawText": "Z KIDD-SMITH",
+        "description": "Z KIDD-SMITH",
+        "message": "pizza",
+        "isCategorizable": true,
+        "holdInfo": null,
+        "roundUp": null,
+        "cashback": null,
+        "amount": {
+            "currencyCode": "AUD",
+            "value": "10.95",
+            "valueInBaseUnits": 1095
+        },
+        "foreignAmount": null,
+        "settledAt": "2023-12-27T05:08:06+11:00",
+        "createdAt": "2023-12-27T05:08:06+11:00"
+    },
+    "relationships": {
+        "account": {
+            "data": {
+                "type": "accounts",
+                "id": "2be1c9de-7a89-4e8f-8077-f535150b588d"
+            },
+            "links": {
+                "related": "https://api.up.com.au/api/v1/accounts/2be1c9de-7a89-4e8f-8077-f535150b588d"
+            }
+        },
+        "transferAccount": {
+            "data": null
+        },
+        "category": {
+            "data": null,
+            "links": {
+                "self": "https://api.up.com.au/api/v1/transactions/9f08959d-51d2-43a8-a45a-154373870094/relationships/category"
+            }
+        },
+        "parentCategory": {
+            "data": null
+        },
+        "tags": {
+            "data": [],
+            "links": {
+                "self": "https://api.up.com.au/api/v1/transactions/9f08959d-51d2-43a8-a45a-154373870094/relationships/tags"
+            }
+        }
+    },
+    "links": {
+        "self": "https://api.up.com.au/api/v1/transactions/9f08959d-51d2-43a8-a45a-154373870094"
+    }
+}
