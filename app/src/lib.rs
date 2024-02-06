@@ -5,7 +5,6 @@ pub mod cli;
 pub mod config;
 pub mod run;
 pub mod transaction;
-pub mod transfer;
 pub mod up;
 pub mod ynab;
 
@@ -16,7 +15,7 @@ use color_eyre::eyre::{eyre, ContextCompat, Result};
 use config::Config;
 use futures::{StreamExt, TryStreamExt};
 use itertools::Itertools;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use uuid::Uuid;
 
 #[derive(
@@ -35,8 +34,8 @@ pub type YnabTransaction = ynab_client::models::TransactionDetail;
 pub type NewYnabTransaction = ynab_client::models::SaveTransaction;
 pub type YnabAccount = ynab_client::models::Account;
 pub type YnabBudget = ynab_client::models::BudgetSummary;
-pub use self::{transaction::Transaction, transfer::match_transfers};
-use crate::{run::Run, transfer::TransferMatches};
+pub use self::transaction::Transaction;
+use crate::run::Run;
 
 pub async fn fetch_up_accounts(config: &Config) -> Result<Vec<UpAccount>> {
     info!("fetching up accounts...");
@@ -124,76 +123,15 @@ pub fn normalize_up_transactions(
     up_transactions: &[UpTransaction],
     accounts: &[Account],
 ) -> Result<Vec<Transaction>> {
-    let up_transactions = up_transactions
+    let transactions = up_transactions
         .iter()
         .map(|x| Transaction::from_up(x.clone(), accounts))
-        .collect::<Result<Vec<_>>>()?;
-    let num_transactions = up_transactions.len();
-
-    let (expenses, transfers) = up_transactions
+        .collect::<Result<Vec<_>>>()?
         .into_iter()
-        .partition::<Vec<_>, _>(|x| x.is_expense());
-
-    let TransferMatches { matched, unmatched } = transfer::match_transfers(&transfers)?;
-    if expenses.len() + transfers.len() != num_transactions
-        || (matched.len() * 2) + unmatched.len() != transfers.len()
-    {
-        return Err(eyre!(
-            "mismatched transaction count, this should never happen"
-        ));
-    }
-
-    let (roundups, non_roundups) = unmatched
-        .into_iter()
-        .partition::<Vec<_>, _>(|x| x.is_round_up());
-
-    let non_roundups = non_roundups
-        .into_iter()
-        .map(|x| {
-            let kind = match &x.kind {
-                transaction::Kind::Transfer { to, from } => {
-                    warn!(
-                        "converting unmatched transfer `{}` aka `{}` to an expense",
-                        x.msg.as_deref().unwrap_or_default(),
-                        x.id,
-                    );
-                    transaction::Kind::Expense {
-                        to: to.to_owned(),
-                        from_name: from.name.to_owned(),
-                    }
-                }
-                x => x.to_owned(),
-            };
-
-            let mut new_transaction = x.clone();
-            new_transaction.kind = kind;
-            new_transaction
-        })
+        .filter(|x| (x.is_expense() || (x.is_transfer() && x.amount.amount.is_sign_positive())))
         .collect::<Vec<_>>();
 
-    if !non_roundups.is_empty() {
-        let total = non_roundups
-            .iter()
-            .map(|x| x.amount)
-            .reduce(|acc, e| acc + e)
-            .unwrap_or_default();
-        warn!("found sussy transactions totalling {total}:\n{non_roundups:#?}");
-    }
-
-    info!(
-        "up: found {} expenses, {} transfers, {} roundups",
-        expenses.len(),
-        matched.len() * 2,
-        roundups.len(),
-    );
-
-    let transactions = expenses
-        .into_iter()
-        .chain(roundups.into_iter().cloned())
-        .chain(non_roundups)
-        .chain(matched.into_iter().map(|pair| pair.from).cloned())
-        .sorted_by(|a, b| Ord::cmp(&a.time, &b.time))
-        .collect::<Vec<_>>();
+    info!("normalized {} up transactions", transactions.len());
     Ok(transactions)
 }
 

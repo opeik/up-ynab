@@ -17,7 +17,7 @@ pub fn running_balance(transactions: &[Transaction]) -> Vec<Balance> {
     let mut balances = Vec::<Balance>::new();
     let transactions = transactions
         .iter()
-        .sorted_by(|a, b| Ord::cmp(&a.time, &b.time));
+        .sorted_by(|a: &&Transaction, b| Ord::cmp(&a.time, &b.time));
 
     for transaction in transactions {
         let last_balance = balances.last().cloned().unwrap_or(Balance {
