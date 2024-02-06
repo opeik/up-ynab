@@ -33,9 +33,9 @@ async fn main() -> Result<()> {
         Commands::SyncTransactions {
             since,
             until,
-            run_path,
+            in_path,
             dry_run,
-        } => sync(&config, run_path.as_deref(), since, until, Some(dry_run)).await?,
+        } => sync(&config, in_path.as_deref(), since, until, Some(dry_run)).await?,
         Commands::GetAccounts(x) => match x {
             GetAccounts::Up => get_up_accounts(&config).await?,
             GetAccounts::Ynab => get_ynab_accounts(&config).await?,
@@ -49,15 +49,16 @@ async fn main() -> Result<()> {
         Commands::GetBudgets => get_ynab_budgets(&config).await?,
         Commands::Balance(x) => match x {
             Balance::Up {
-                run_path,
+                in_path,
+                out_path,
                 since,
                 until,
-            } => up_balance(&run_path, since, until)?,
+            } => up_balance(&in_path, out_path.as_deref(), since, until)?,
             Balance::Ynab {
-                run_path,
+                in_path,
                 since,
                 until,
-            } => ynab_balance(&run_path, since, until)?,
+            } => ynab_balance(&in_path, since, until)?,
         },
     }
 
@@ -108,14 +109,14 @@ async fn get_ynab_budgets(config: &Config) -> Result<()> {
 
 async fn sync(
     config: &Config,
-    run_path: Option<&Path>,
+    in_path: Option<&Path>,
     since: Option<DateTime<FixedOffset>>,
     until: Option<DateTime<FixedOffset>>,
     dry_run: Option<bool>,
 ) -> Result<()> {
     up_ynab::sync(SyncArgs {
         config,
-        run_path,
+        in_path,
         since,
         until,
         dry_run,
@@ -124,19 +125,20 @@ async fn sync(
 }
 
 fn up_balance(
-    run_path: &Path,
+    in_path: &Path,
+    out_path: Option<&Path>,
     since: Option<DateTime<FixedOffset>>,
     until: Option<DateTime<FixedOffset>>,
 ) -> Result<()> {
-    up_ynab::up_balance(run_path, since, until)
+    up_ynab::up_balance(in_path, out_path, since, until)
 }
 
 fn ynab_balance(
-    run_path: &Path,
+    in_path: &Path,
     since: Option<DateTime<FixedOffset>>,
     until: Option<DateTime<FixedOffset>>,
 ) -> Result<()> {
-    up_ynab::ynab_balance(run_path, since, until)
+    up_ynab::ynab_balance(in_path, since, until)
 }
 
 fn install_tracing() {

@@ -25,7 +25,7 @@ pub enum Commands {
         until: Option<DateTime<FixedOffset>>,
         /// Previous run path.
         #[arg(long, value_name = "FILE")]
-        run_path: Option<PathBuf>,
+        in_path: Option<PathBuf>,
         /// Run command without making any changes.
         #[arg(long, default_value_t = false)]
         dry_run: bool,
@@ -75,9 +75,12 @@ pub enum GetTransactions {
 pub enum Balance {
     /// List running Up balance.
     Up {
-        /// Previous run path.
+        /// Run input path.
         #[arg(long, value_name = "FILE")]
-        run_path: PathBuf,
+        in_path: PathBuf,
+        /// CSV output path.
+        #[arg(long, value_name = "FILE")]
+        out_path: Option<PathBuf>,
         /// Only list balances since this date.
         #[arg(long)]
         since: Option<DateTime<FixedOffset>>,
@@ -89,7 +92,7 @@ pub enum Balance {
     Ynab {
         /// Previous run path.
         #[arg(long, value_name = "FILE")]
-        run_path: PathBuf,
+        in_path: PathBuf,
         /// Only list balances since this date.
         #[arg(long)]
         since: Option<DateTime<FixedOffset>>,

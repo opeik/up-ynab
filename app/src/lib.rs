@@ -9,7 +9,7 @@ pub mod transfer;
 pub mod up;
 pub mod ynab;
 
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use chrono::{DateTime, FixedOffset};
 use color_eyre::eyre::{eyre, ContextCompat, Result};
@@ -114,7 +114,7 @@ pub async fn fetch_ynab_budgets(config: &Config) -> Result<Vec<YnabBudget>> {
 
 pub struct SyncArgs<'a> {
     pub config: &'a Config,
-    pub run_path: Option<&'a Path>,
+    pub in_path: Option<&'a Path>,
     pub since: Option<DateTime<FixedOffset>>,
     pub until: Option<DateTime<FixedOffset>>,
     pub dry_run: Option<bool>,
@@ -165,13 +165,9 @@ pub fn normalize_up_transactions(
                 x => x.to_owned(),
             };
 
-            Transaction {
-                id: x.id.to_owned(),
-                time: x.time,
-                amount: x.amount,
-                msg: x.msg.to_owned(),
-                kind,
-            }
+            let mut new_transaction = x.clone();
+            new_transaction.kind = kind;
+            new_transaction
         })
         .collect::<Vec<_>>();
 
@@ -185,7 +181,7 @@ pub fn normalize_up_transactions(
     }
 
     info!(
-        "found {} expenses, {} transfers, {} roundups",
+        "up: found {} expenses, {} transfers, {} roundups",
         expenses.len(),
         matched.len() * 2,
         roundups.len(),
@@ -201,11 +197,37 @@ pub fn normalize_up_transactions(
     Ok(transactions)
 }
 
+fn missing_transactions<'a>(
+    source_transactions: &'a [Transaction],
+    remote_transactions: &'a [Transaction],
+) -> Vec<&'a Transaction> {
+    let source_transactions_by_id = source_transactions
+        .iter()
+        .map(|x| (x.id.as_str(), x))
+        .collect::<HashMap<&str, &Transaction>>();
+
+    let remote_transactions_by_id = remote_transactions
+        .iter()
+        .filter(|x| x.imported_id.is_some())
+        .map(|x| (x.imported_id.as_deref().unwrap(), x))
+        .collect::<HashMap<&str, &Transaction>>();
+
+    let missing_transactions = source_transactions_by_id
+        .keys()
+        .map(|k| (k, remote_transactions_by_id.get(k)))
+        .filter(|(_k, v)| v.is_none())
+        .map(|(k, _v)| source_transactions_by_id.get(k).unwrap())
+        .copied()
+        .collect::<Vec<_>>();
+
+    missing_transactions
+}
+
 pub async fn sync(args: SyncArgs<'_>) -> Result<()> {
     let ynab_client = ynab::Client::new(&args.config.ynab.api_token);
 
-    let run = if let Some(run_path) = args.run_path {
-        Run::read(run_path)?
+    let run = if let Some(in_path) = args.in_path {
+        Run::read(in_path)?
     } else {
         run::fetch_run(args.config, args.since, args.until).await?
     };
@@ -217,7 +239,7 @@ pub async fn sync(args: SyncArgs<'_>) -> Result<()> {
         .as_ref()
         .map(|x| Uuid::parse_str(x))
         .wrap_err("missing budget id")??;
-    let _budget = run
+    let budget = run
         .ynab_budgets
         .wrap_err("missing ynab budgets")?
         .iter()
@@ -230,12 +252,30 @@ pub async fn sync(args: SyncArgs<'_>) -> Result<()> {
         &run.ynab_accounts.unwrap_or_default(),
     )?;
 
-    let transactions =
+    let ynab_transactions = run
+        .ynab_transactions
+        .map(|x| {
+            x.into_iter()
+                .map(|x| Transaction::from_ynab(x, &budget, &accounts))
+                .collect::<Result<Vec<_>>>()
+        })
+        .transpose()?;
+
+    let up_transactions =
         normalize_up_transactions(&run.up_transactions.unwrap_or_default(), &accounts)?;
 
-    let new_ynab_transactions = transactions
-        .iter()
-        .map(|x| x.to_ynab())
+    let missing_transactions = ynab_transactions
+        .as_ref()
+        .map(|ynab_transactions| missing_transactions(&up_transactions, ynab_transactions))
+        .unwrap_or_default();
+    info!(
+        "found {} missing up transactions on ynab",
+        missing_transactions.len()
+    );
+
+    let new_ynab_transactions = missing_transactions
+        .into_iter()
+        .map(|x| x.clone().to_ynab())
         .inspect(|x| {
             if let Err(e) = x {
                 error!("failed to convert to new ynab transaction: {e}")
@@ -246,9 +286,15 @@ pub async fn sync(args: SyncArgs<'_>) -> Result<()> {
     if args.dry_run.unwrap_or_default() {
         info!("dry run, skipping creating ynab transactions");
         return Ok(());
+    } else if new_ynab_transactions.is_empty() {
+        info!("nothing to do, stopping...");
+        return Ok(());
     }
 
-    info!("creating ynab transactions...");
+    info!(
+        "creating ynab {} transactions...",
+        new_ynab_transactions.len()
+    );
     let num_transactions = new_ynab_transactions.len();
     let response = ynab_client
         .new_transactions()
@@ -259,9 +305,8 @@ pub async fn sync(args: SyncArgs<'_>) -> Result<()> {
 
     let num_missing =
         num_transactions - response.transactions.as_ref().unwrap_or(&Vec::new()).len();
-
     if num_missing != 0 {
-        return Err(eyre!("failed to create {num_missing} transactions"));
+        error!("failed to create {num_missing} transactions");
     }
 
     if let Some(duplicate_ids) = response.duplicate_import_ids
@@ -277,12 +322,12 @@ pub async fn sync(args: SyncArgs<'_>) -> Result<()> {
 }
 
 pub fn up_balance(
-    run_path: &Path,
+    in_path: &Path,
+    out_path: Option<&Path>,
     since: Option<DateTime<FixedOffset>>,
     until: Option<DateTime<FixedOffset>>,
 ) -> Result<()> {
-    let run = Run::read(run_path)?;
-
+    let run = Run::read(in_path)?;
     let accounts = match_accounts(
         &run.up_accounts.unwrap_or_default(),
         &run.ynab_accounts.unwrap_or_default(),
@@ -291,7 +336,6 @@ pub fn up_balance(
     let up_transactions =
         normalize_up_transactions(&run.up_transactions.unwrap_or_default(), &accounts)?;
     let balances = balance::running_balance(&up_transactions);
-    balance::write_balance_csv(&balances, "balance.csv")?;
 
     for balance in &balances {
         if let Some(since) = since
@@ -309,15 +353,20 @@ pub fn up_balance(
         info!("{balance}");
     }
 
+    if let Some(out_path) = out_path {
+        info!("writing balance CSV to `{}`", out_path.to_string_lossy());
+        balance::write_balance_csv(&balances, out_path)?;
+    }
+
     Ok(())
 }
 
 pub fn ynab_balance(
-    run_path: &Path,
+    in_path: &Path,
     since: Option<DateTime<FixedOffset>>,
     until: Option<DateTime<FixedOffset>>,
 ) -> Result<()> {
-    let run = Run::read(run_path)?;
+    let run = Run::read(in_path)?;
 
     let accounts = match_accounts(
         &run.up_accounts.unwrap_or_default(),
@@ -378,7 +427,7 @@ pub fn match_accounts(
             let up_account_name = up_account.attributes.display_name.clone();
             let ynab_account = ynab_accounts
                 .iter()
-                .find(|x| x.name == up_account_name)
+                .find(|x| x.name.trim() == up_account_name.trim())
                 .wrap_err(format!(
                     "failed to match up account `{up_account_name}` to ynab account"
                 ))?;

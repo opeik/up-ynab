@@ -16,6 +16,7 @@ pub enum Kind {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Transaction {
     pub id: String,
+    pub imported_id: Option<String>,
     pub time: DateTime<FixedOffset>,
     pub amount: Money,
     pub msg: Option<String>,
@@ -143,11 +144,20 @@ impl Transaction {
 
         Ok(Self {
             id: value.id,
+            imported_id: None,
             amount,
             msg,
             kind,
             time: DateTime::parse_from_rfc3339(&value.attributes.created_at)?,
         })
+    }
+
+    pub fn sussy_eq(&self, other: &Self) -> bool {
+        Some(self.id.as_str()) == other.imported_id.as_deref()
+            && self.time.date_naive() == other.time.date_naive()
+            && self.amount == other.amount
+            && self.msg == other.msg
+            && self.kind == other.kind
     }
 
     pub fn from_ynab(
@@ -208,8 +218,15 @@ impl Transaction {
             )?,
         );
 
+        let imported_id = if let Some(Some(imported_id)) = value.import_id {
+            Some(imported_id)
+        } else {
+            None
+        };
+
         Ok(Self {
             id: value.id,
+            imported_id,
             amount,
             msg,
             kind,
@@ -220,7 +237,7 @@ impl Transaction {
         })
     }
 
-    pub fn to_ynab(&self) -> Result<NewYnabTransaction> {
+    pub fn to_ynab(self) -> Result<NewYnabTransaction> {
         let amount = i64::try_from(self.amount.amount.mantissa() * 10)
             .wrap_err("failed to convert amount")?;
 
@@ -235,7 +252,7 @@ impl Transaction {
             payee_name: None,
             category_id: None,
             flag_color: None,
-            import_id: None,
+            import_id: Some(Some(self.id)),
             subtransactions: None,
         };
 

@@ -30,18 +30,23 @@ pub async fn fetch_run(
 
     let up_accounts = crate::fetch_up_accounts(config).await?;
     run.write_up_accounts(&up_accounts)?;
-
-    let ynab_accounts = crate::fetch_ynab_accounts(config).await?;
-    run.write_ynab_accounts(&ynab_accounts)?;
-
-    let ynab_budgets = crate::fetch_ynab_budgets(config).await?;
-    run.write_ynab_budgets(&ynab_budgets)?;
+    info!("fetched {} up accounts", up_accounts.len());
 
     let up_transactions = crate::fetch_up_transactions(config, since, until).await?;
     run.write_up_transactions(&up_transactions)?;
+    info!("fetched {} up transactions", up_transactions.len());
+
+    let ynab_accounts = crate::fetch_ynab_accounts(config).await?;
+    run.write_ynab_accounts(&ynab_accounts)?;
+    info!("fetched {} ynab accounts", up_accounts.len());
 
     let ynab_transactions = crate::fetch_ynab_transactions(config, since).await?;
     run.write_ynab_transactions(&ynab_transactions)?;
+    info!("fetched {} ynab transactions", ynab_transactions.len());
+
+    let ynab_budgets = crate::fetch_ynab_budgets(config).await?;
+    run.write_ynab_budgets(&ynab_budgets)?;
+    info!("fetched {} ynab budgets", ynab_budgets.len());
 
     run.up_accounts = Some(up_accounts);
     run.up_transactions = Some(up_transactions);
