@@ -1,26 +1,43 @@
 use chrono::Duration;
-use color_eyre::eyre::{eyre, ContextCompat, Result};
+use color_eyre::eyre::{eyre, Result};
 use itertools::Itertools;
 use tracing::warn;
 
 use crate::Transaction;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TransferPair {
-    pub to: Transaction,
-    pub from: Transaction,
+pub struct TransferPair<'a> {
+    pub to: &'a Transaction,
+    pub from: &'a Transaction,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TransferMatches {
-    pub matched: Vec<TransferPair>,
-    pub unmatched: Vec<Transaction>,
+pub struct TransferMatches<'a> {
+    pub matched: Vec<TransferPair<'a>>,
+    pub unmatched: Vec<&'a Transaction>,
 }
+
+const TO_PREFIXES: &[&str] = &[
+    "Transfer to ",
+    "Auto Transfer to ",
+    "Cover to ",
+    "Quick save transfer to ",
+    "Forward to ",
+];
+
+const FROM_PREFIXES: &[&str] = &[
+    "Transfer from ",
+    "Auto Transfer from ",
+    "Cover from ",
+    "Quick save transfer from ",
+    "Forward from ",
+];
+
 /// Matches tranfer transaction pairs together.
 ///
 /// Unfortunately, transfers (including round ups) don't contain a reference to its other half.
 /// So, we have to guess. Fun!
-pub fn match_transfers(transfers: &[Transaction]) -> Result<TransferMatches> {
+pub fn match_transfers(transfers: &[Transaction]) -> Result<TransferMatches<'_>> {
     let mut matched = Vec::new();
     let mut unmatched = Vec::new();
 
@@ -28,96 +45,29 @@ pub fn match_transfers(transfers: &[Transaction]) -> Result<TransferMatches> {
         .iter()
         .into_group_map_by(|x| x.amount.amount.abs());
 
-    let to_prefixes = [
-        "Transfer to ",
-        "Auto Transfer to ",
-        "Cover to ",
-        "Quick save transfer to ",
-        "Forward to ",
-    ];
-
-    let from_prefixes = [
-        "Transfer from ",
-        "Auto Transfer from ",
-        "Cover from ",
-        "Quick save transfer from ",
-        "Forward from ",
-    ];
-
     // TODO: make less gross
-    for group in &groups {
+    for group in groups {
         let (mut tos, mut froms) = group
             .1
-            .iter()
-            .map(|x| Some(*x))
-            .partition::<Vec<Option<&Transaction>>, _>(|x| {
-                x.unwrap().amount.amount.is_sign_negative()
-            });
+            .into_iter()
+            .map(Some)
+            .partition::<Vec<_>, _>(|x| x.as_deref().unwrap().amount.amount.is_sign_negative());
 
         let mut pairs = Vec::new();
         for to in &mut tos {
             for from in &mut froms {
                 if let Some(to_inner) = to
                     && let Some(from_inner) = from
-                    && let Some(to_msg) = &to_inner.msg
-                    && let Some(from_msg) = &from_inner.msg
-                    && let Some(to_prefix_index) = to_prefixes
-                        .iter()
-                        .position(|prefix| to_msg.starts_with(*prefix))
+                    && let Some(pair) = match_transfer_pair(to_inner, from_inner)
                 {
-                    let d = (from_inner.time - to_inner.time).abs();
-                    let from_prefix_index = from_prefixes
-                        .iter()
-                        .position(|prefix| from_msg.starts_with(*prefix));
-
-                    if d > Duration::seconds(15) {
-                        continue;
-                    }
-
-                    if let Some(from_prefix_index) = from_prefix_index
-                        && to_prefix_index == from_prefix_index
-                    {
-                        pairs.push(TransferPair {
-                            to: to_inner.clone(),
-                            from: from_inner.clone(),
-                        });
-                        *to = None;
-                        *from = None;
-                    } else if to_inner.is_round_up() || from_inner.is_round_up() {
-                        // For *some reason* roundups very rarely *are* given "to" and "from"
-                        // transactions. But *unlike* regular transfers, the "from" transfer
-                        // doesn't match the usual convention. Thanks to this phenomenon, we have
-                        // to fix the "from" transfer message so it's not treated as a roundup
-                        // later.
-                        warn!(
-                            "found sussy roundup `{}` in matched transfer pair, fixing...",
-                            &to_inner.id
-                        );
-                        let mut x = from_inner.clone();
-                        x.msg = to_inner
-                            .msg
-                            .as_deref()
-                            .and_then(|x| x.strip_prefix(to_prefixes[to_prefix_index]))
-                            .map(|x| format!("{}{x}", from_prefixes[to_prefix_index]));
-
-                        pairs.push(TransferPair {
-                            to: to_inner.clone(),
-                            from: x,
-                        });
-                        *to = None;
-                        *from = None;
-                    };
+                    pairs.push(pair);
+                    *to = None;
+                    *from = None;
                 }
             }
         }
 
-        let mut remainder = tos
-            .into_iter()
-            .chain(froms.into_iter())
-            .flatten()
-            .cloned()
-            .collect::<Vec<_>>();
-
+        let mut remainder = tos.into_iter().chain(froms).flatten().collect::<Vec<_>>();
         matched.append(&mut pairs);
         unmatched.append(&mut remainder);
     }
@@ -132,6 +82,35 @@ pub fn match_transfers(transfers: &[Transaction]) -> Result<TransferMatches> {
     }
 
     Ok(TransferMatches { matched, unmatched })
+}
+
+fn match_transfer_pair<'a>(to: &'a Transaction, from: &'a Transaction) -> Option<TransferPair<'a>> {
+    if let Some(to_msg) = to.msg.as_deref()
+        && let Some(from_msg) = from.msg.as_deref()
+        && let Some(to_prefix_index) = TO_PREFIXES
+            .iter()
+            .position(|to_prefix| to_msg.starts_with(*to_prefix))
+        && (to.time - from.time).abs() <= Duration::seconds(15)
+    {
+        // Normally, transfer transactions messages follow a naming convention. If they're behaving
+        // this should suffice.
+        if let Some(from_prefix_index) = FROM_PREFIXES
+            .iter()
+            .position(|prefix| from_msg.starts_with(*prefix))
+            && to_prefix_index == from_prefix_index
+        {
+            return Some(TransferPair { to, from });
+        }
+
+        // For *some reason* roundups very rarely *are* given "to" and "from" transactions. But
+        // *unlike* regular transfers, the "from" transfer doesn't match the usual convention.
+        if to.is_round_up() || from.is_round_up() {
+            warn!("found sussy roundup `{}` in matched transfer pair", &to.id);
+            return Some(TransferPair { to, from });
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]

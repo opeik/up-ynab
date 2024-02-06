@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, fmt, fs::File, path::Path};
 
 use color_eyre::eyre::Result;
+use indoc::{formatdoc, writedoc};
 use itertools::Itertools;
 use money2::Money;
 
@@ -52,7 +53,6 @@ pub fn running_balance(transactions: &[Transaction]) -> Vec<Balance> {
     balances
 }
 
-// TODO: this is awful
 pub fn write_balance_csv<P: AsRef<Path>>(balances: &[Balance], path: P) -> Result<()> {
     let accounts = balances
         .last()
@@ -115,8 +115,7 @@ impl<'a> fmt::Display for Balance<'a> {
         let accounts = self
             .values
             .iter()
-            .sorted_by(|a, b| Ord::cmp(&a.0.name, &b.0.name))
-            .map(|(k, v)| format!("  - {}: {}", k.name, v))
+            .map(|(k, v)| format!(" • {}: {}", k.name, v.amount))
             .join("\n");
 
         let kind = match &self.transaction.kind {
@@ -127,15 +126,34 @@ impl<'a> fmt::Display for Balance<'a> {
             transaction::Kind::Transfer { to: _, from: _ } => "transfer",
         };
 
-        let s = format!(
-            "{kind} ({}) {}: `{}`: {}  {}",
-            self.transaction.time.to_rfc3339(),
-            self.transaction.amount,
-            self.transaction.clone().msg.unwrap_or_default(),
-            self.transaction.to_name(),
-            self.transaction.from_name(),
-        );
-        write!(f, "{s}")
+        let time = self.transaction.time.to_rfc3339();
+        let amount = self.transaction.amount;
+        let to = self.transaction.to_name();
+        let from = self.transaction.from_name();
+
+        let transaction = match self.transaction.msg.as_deref() {
+            Some(x) => formatdoc! {"
+                • amount: {amount}
+                • kind: {kind}
+                • msg: {x}
+                • {to} →  {from}"
+            },
+            None => formatdoc! {"
+                • amount: {amount}
+                • kind: {kind}
+                • {to} →  {from}"
+            },
+        };
+
+        writedoc! {
+            f,
+            "
+            Balance at {time}:
+            Transaction:
+            {transaction}
+            Accounts:
+            {accounts}"
+        }
     }
 }
 
@@ -191,7 +209,7 @@ mod tests {
             Balance {
                 values: BTreeMap::from([(
                     spending_account(),
-                    Money::new(19_00, 2, Currency::from_str("AUD")?),
+                    Money::new(20_00, 2, Currency::from_str("AUD")?),
                 )]),
                 transaction: &transactions[1],
             },

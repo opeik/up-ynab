@@ -16,7 +16,6 @@ use color_eyre::eyre::{eyre, ContextCompat, Result};
 use config::Config;
 use futures::{StreamExt, TryStreamExt};
 use itertools::Itertools;
-use money2::{Currency, Money};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -131,16 +130,9 @@ pub fn normalize_up_transactions(
         .collect::<Result<Vec<_>>>()?;
     let num_transactions = up_transactions.len();
 
-    let (expenses, transfers) =
-        up_transactions
-            .into_iter()
-            .partition::<Vec<_>, _>(|x| match x.kind {
-                transaction::Kind::Expense {
-                    to: _,
-                    from_name: _,
-                } => true,
-                transaction::Kind::Transfer { to: _, from: _ } => false,
-            });
+    let (expenses, transfers) = up_transactions
+        .into_iter()
+        .partition::<Vec<_>, _>(|x| x.is_expense());
 
     let TransferMatches { matched, unmatched } = transfer::match_transfers(&transfers)?;
     if expenses.len() + transfers.len() != num_transactions
@@ -153,12 +145,12 @@ pub fn normalize_up_transactions(
 
     let (roundups, non_roundups) = unmatched
         .into_iter()
-        .partition::<Vec<Transaction>, _>(|x| x.is_round_up());
+        .partition::<Vec<_>, _>(|x| x.is_round_up());
 
     let non_roundups = non_roundups
         .into_iter()
         .map(|x| {
-            let kind = match x.kind {
+            let kind = match &x.kind {
                 transaction::Kind::Transfer { to, from } => {
                     warn!(
                         "converting unmatched transfer `{}` aka `{}` to an expense",
@@ -166,18 +158,18 @@ pub fn normalize_up_transactions(
                         x.id,
                     );
                     transaction::Kind::Expense {
-                        to,
-                        from_name: from.name,
+                        to: to.to_owned(),
+                        from_name: from.name.to_owned(),
                     }
                 }
-                x => x,
+                x => x.to_owned(),
             };
 
             Transaction {
-                id: x.id,
+                id: x.id.to_owned(),
                 time: x.time,
                 amount: x.amount,
-                msg: x.msg,
+                msg: x.msg.to_owned(),
                 kind,
             }
         })
@@ -199,13 +191,14 @@ pub fn normalize_up_transactions(
         roundups.len(),
     );
 
-    Ok(expenses
+    let transactions = expenses
         .into_iter()
-        .chain(roundups)
+        .chain(roundups.into_iter().cloned())
         .chain(non_roundups)
-        .chain(matched.into_iter().map(|pair| pair.from.clone()))
+        .chain(matched.into_iter().map(|pair| pair.from).cloned())
         .sorted_by(|a, b| Ord::cmp(&a.time, &b.time))
-        .collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    Ok(transactions)
 }
 
 pub async fn sync(args: SyncArgs<'_>) -> Result<()> {
@@ -224,7 +217,7 @@ pub async fn sync(args: SyncArgs<'_>) -> Result<()> {
         .as_ref()
         .map(|x| Uuid::parse_str(x))
         .wrap_err("missing budget id")??;
-    let budget = run
+    let _budget = run
         .ynab_budgets
         .wrap_err("missing ynab budgets")?
         .iter()
@@ -297,7 +290,6 @@ pub fn up_balance(
 
     let up_transactions =
         normalize_up_transactions(&run.up_transactions.unwrap_or_default(), &accounts)?;
-
     let balances = balance::running_balance(&up_transactions);
     balance::write_balance_csv(&balances, "balance.csv")?;
 
@@ -314,12 +306,7 @@ pub fn up_balance(
             continue;
         }
 
-        let status = balance
-            .values
-            .iter()
-            .map(|(k, v)| format!("{}: {}", k.name, v.amount))
-            .join("\n  ");
-        info!("{}: \n  {status}", balance.transaction.time)
+        info!("{balance}");
     }
 
     Ok(())

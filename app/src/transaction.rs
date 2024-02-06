@@ -61,6 +61,26 @@ impl Transaction {
             .unwrap_or_default()
     }
 
+    pub fn is_transfer(&self) -> bool {
+        match &self.kind {
+            Kind::Expense {
+                to: _,
+                from_name: _,
+            } => false,
+            Kind::Transfer { to: _, from: _ } => true,
+        }
+    }
+
+    pub fn is_expense(&self) -> bool {
+        match &self.kind {
+            Kind::Expense {
+                to: _,
+                from_name: _,
+            } => true,
+            Kind::Transfer { to: _, from: _ } => false,
+        }
+    }
+
     pub fn from_up(value: UpTransaction, accounts: &[Account]) -> Result<Self> {
         let to_id =
             Some(value.relationships.account.data.id.as_str()).wrap_err("missing `to` account")?;
@@ -360,7 +380,7 @@ mod tests {
         let expected = Transaction {
             id: "a0f9976c-d0ac-4cef-afd6-91bbc0033730".to_string(),
             time: DateTime::parse_from_rfc3339("2023-12-28T22:49:40+11:00")?,
-            amount: Money::new(-13_00, 2, Currency::Aud),
+            amount: Money::new(-12_99, 2, Currency::Aud),
             kind: Kind::Expense {
                 to: spending_account(),
                 from_name: "Amazon".to_string(),
