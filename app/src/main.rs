@@ -28,37 +28,44 @@ async fn main() -> Result<()> {
         ))
         .extract::<Config>()?;
 
-    use cli::{Balance, GetAccounts, GetTransactions};
+    use cli::{Accounts, Balance, Transactions};
     match cli.command {
-        Commands::SyncTransactions {
+        Commands::Sync {
             since,
             until,
             in_path,
             dry_run,
         } => sync(&config, in_path.as_deref(), since, until, Some(dry_run)).await?,
-        Commands::GetAccounts(x) => match x {
-            GetAccounts::Up => get_up_accounts(&config).await?,
-            GetAccounts::Ynab => get_ynab_accounts(&config).await?,
+        Commands::Accounts(x) => match x {
+            Accounts::Up => get_up_accounts(&config).await?,
+            Accounts::Ynab => get_ynab_accounts(&config).await?,
         },
-        Commands::GetTransactions(x) => match x {
-            GetTransactions::Up { since, until } => {
-                get_up_transactions(&config, since, until).await?
-            }
-            GetTransactions::Ynab { since } => get_ynab_transactions(&config, since).await?,
+        Commands::Transactions(x) => match x {
+            Transactions::Up { since, until } => get_up_transactions(&config, since, until).await?,
+            Transactions::Ynab { since } => get_ynab_transactions(&config, since).await?,
         },
-        Commands::GetBudgets => get_ynab_budgets(&config).await?,
+        Commands::Budgets => get_ynab_budgets(&config).await?,
         Commands::Balance(x) => match x {
             Balance::Up {
                 in_path,
                 out_path,
                 since,
                 until,
-            } => up_balance(&in_path, out_path.as_deref(), since, until)?,
+            } => {
+                up_balance(
+                    &config,
+                    in_path.as_deref(),
+                    out_path.as_deref(),
+                    since,
+                    until,
+                )
+                .await?
+            }
             Balance::Ynab {
                 in_path,
                 since,
                 until,
-            } => ynab_balance(&in_path, since, until)?,
+            } => ynab_balance(&in_path, since, until).await?,
         },
     }
 
@@ -124,16 +131,17 @@ async fn sync(
     .await
 }
 
-fn up_balance(
-    in_path: &Path,
+async fn up_balance(
+    config: &Config,
+    in_path: Option<&Path>,
     out_path: Option<&Path>,
     since: Option<DateTime<FixedOffset>>,
     until: Option<DateTime<FixedOffset>>,
 ) -> Result<()> {
-    up_ynab::up_balance(in_path, out_path, since, until)
+    up_ynab::up_balance(config, in_path, out_path, since, until).await
 }
 
-fn ynab_balance(
+async fn ynab_balance(
     in_path: &Path,
     since: Option<DateTime<FixedOffset>>,
     until: Option<DateTime<FixedOffset>>,

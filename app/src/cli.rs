@@ -16,7 +16,7 @@ pub struct Cli {
 #[derive(clap::Subcommand)]
 pub enum Commands {
     /// Syncs transactions from Up to YNAB.
-    SyncTransactions {
+    Sync {
         /// Only sync transaction since this date.
         #[arg(long)]
         since: Option<DateTime<FixedOffset>>,
@@ -32,19 +32,19 @@ pub enum Commands {
     },
     /// Fetches accounts.
     #[command(subcommand)]
-    GetAccounts(GetAccounts),
+    Accounts(Accounts),
     /// Fetches transactions.
     #[command(subcommand)]
-    GetTransactions(GetTransactions),
+    Transactions(Transactions),
     /// Fetches YNAB budgets.
-    GetBudgets,
+    Budgets,
     /// List running balance for a past run.
     #[command(subcommand)]
     Balance(Balance),
 }
 
 #[derive(clap::Subcommand)]
-pub enum GetAccounts {
+pub enum Accounts {
     /// Fetches Up accounts.
     Up,
     /// Fetches Ynab accounts.
@@ -52,7 +52,7 @@ pub enum GetAccounts {
 }
 
 #[derive(clap::Subcommand)]
-pub enum GetTransactions {
+pub enum Transactions {
     /// Fetches Up accounts.
     Up {
         /// Only fetch transaction since this date.
@@ -77,7 +77,7 @@ pub enum Balance {
     Up {
         /// Run input path.
         #[arg(long, value_name = "FILE")]
-        in_path: PathBuf,
+        in_path: Option<PathBuf>,
         /// CSV output path.
         #[arg(long, value_name = "FILE")]
         out_path: Option<PathBuf>,

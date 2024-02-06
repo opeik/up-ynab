@@ -321,13 +321,19 @@ pub async fn sync(args: SyncArgs<'_>) -> Result<()> {
     Ok(())
 }
 
-pub fn up_balance(
-    in_path: &Path,
+pub async fn up_balance(
+    config: &Config,
+    in_path: Option<&Path>,
     out_path: Option<&Path>,
     since: Option<DateTime<FixedOffset>>,
     until: Option<DateTime<FixedOffset>>,
 ) -> Result<()> {
-    let run = Run::read(in_path)?;
+    let run = if let Some(in_path) = in_path {
+        Run::read(in_path)?
+    } else {
+        run::fetch_run(config, since, until).await?
+    };
+
     let accounts = match_accounts(
         &run.up_accounts.unwrap_or_default(),
         &run.ynab_accounts.unwrap_or_default(),
@@ -362,59 +368,11 @@ pub fn up_balance(
 }
 
 pub fn ynab_balance(
-    in_path: &Path,
-    since: Option<DateTime<FixedOffset>>,
-    until: Option<DateTime<FixedOffset>>,
+    _in_path: &Path,
+    _since: Option<DateTime<FixedOffset>>,
+    _until: Option<DateTime<FixedOffset>>,
 ) -> Result<()> {
-    let run = Run::read(in_path)?;
-
-    let accounts = match_accounts(
-        &run.up_accounts.unwrap_or_default(),
-        &run.ynab_accounts.unwrap_or_default(),
-    )?;
-
-    // TODO: this doesn't account for multiple budgets
-    // TODO: fix double collect
-    let budget = run
-        .ynab_budgets
-        .as_ref()
-        .and_then(|x| x.first())
-        .wrap_err("missing budget")?;
-    let ynab_transactions = run
-        .ynab_transactions
-        .unwrap_or_default()
-        .into_iter()
-        .map(|x| Transaction::from_ynab(x, budget, &accounts))
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .sorted_by(|a, b| Ord::cmp(&a.time, &b.time))
-        .collect::<Vec<_>>();
-
-    let balances = balance::running_balance(&ynab_transactions);
-    info!("calculated {} balances", balances.len());
-
-    for balance in balances {
-        if let Some(since) = since
-            && balance.transaction.time <= since
-        {
-            continue;
-        }
-
-        if let Some(until) = until
-            && balance.transaction.time >= until
-        {
-            continue;
-        }
-
-        let status = balance
-            .values
-            .iter()
-            .map(|(k, v)| format!("  - {}: {}", k.name, v.amount))
-            .join("\n  ");
-        info!("{}: \n  {status}", balance.transaction.time)
-    }
-
-    Ok(())
+    unimplemented!()
 }
 
 pub fn match_accounts(

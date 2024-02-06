@@ -102,10 +102,10 @@ fn match_transfer_pair<'a>(to: &'a Transaction, from: &'a Transaction) -> Option
             return Some(TransferPair { to, from });
         }
 
-        // For *some reason* roundups very rarely *are* given "to" and "from" transactions. But
-        // *unlike* regular transfers, the "from" transfer doesn't match the usual convention.
-        if to.is_round_up() || from.is_round_up() {
-            warn!("found sussy roundup `{}` in matched transfer pair", &to.id);
+        // For *some reason* roundups very rarely *are* given "to" transactions. I wish I could
+        // explain why or how. In my 2 years of transactions this occurs 6 times.
+        if from.is_round_up() {
+            warn!("found sussy roundup `{}`, matching anyway...", &from.id);
             return Some(TransferPair { to, from });
         }
     }

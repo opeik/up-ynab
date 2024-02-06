@@ -22,7 +22,7 @@
             "args": [
                 "balance",
                 "up",
-                "--run-path=${workspaceFolder}/runs/2024-02-04T15:38:49.464103+00:00",
+                "--in-path=${workspaceFolder}/runs/2024-02-04T15:38:49.464103+00:00",
             ],
             "cwd": "${workspaceFolder}"
         },

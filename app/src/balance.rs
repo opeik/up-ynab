@@ -63,7 +63,7 @@ pub fn write_balance_csv<P: AsRef<Path>>(balances: &[Balance], path: P) -> Resul
         .sorted_by(|a, b| Ord::cmp(&a.name, &b.name))
         .collect::<Vec<_>>();
     let accounts_str = accounts.iter().map(|x| x.name.clone()).collect::<Vec<_>>();
-    let headers = ["time", "amount", "msg", "kind", "to", "from"]
+    let headers = ["time", "id", "amount", "msg", "kind", "to", "from"]
         .into_iter()
         .map(|x| x.to_owned())
         .chain(accounts_str)
@@ -74,6 +74,7 @@ pub fn write_balance_csv<P: AsRef<Path>>(balances: &[Balance], path: P) -> Resul
 
     for balance in balances {
         let time = Some(balance.transaction.time.to_rfc3339());
+        let id = Some(balance.transaction.id.clone());
         let amount = Some(balance.transaction.amount.to_string());
         let msg = balance.transaction.msg.clone();
         let kind = Some(
@@ -95,7 +96,7 @@ pub fn write_balance_csv<P: AsRef<Path>>(balances: &[Balance], path: P) -> Resul
             .map(|k| balance.values.get(k).map(|x| x.amount.to_string()))
             .collect::<Vec<_>>();
 
-        let row = [time, amount, msg, kind, to, from]
+        let row = [time, id, amount, msg, kind, to, from]
             .into_iter()
             .chain(account_balances.clone())
             .map(|x| match x {
