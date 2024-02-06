@@ -267,4 +267,65 @@ mod tests {
         assert_eq!(expected, actual);
         Ok(())
     }
+
+    #[test]
+    fn up_balance_sussy_round_up() -> Result<()> {
+        let payload = fs::read_to_string("test/data/up_sussy_round_up.json")?;
+        let accounts = accounts();
+        let up_transactions = serde_json::from_str::<Vec<UpTransaction>>(&payload)?;
+        let transactions = normalize_up_transactions(&up_transactions, &accounts)?;
+
+        let actual = running_balance(&transactions);
+        let expected = Vec::from([
+            Balance {
+                values: BTreeMap::from([(
+                    spending_account(),
+                    Money::new(-33_50, 2, Currency::from_str("AUD")?),
+                )]),
+                transaction: &transactions[0],
+            },
+            Balance {
+                values: BTreeMap::from([
+                    (
+                        spending_account(),
+                        Money::new(-34_00, 2, Currency::from_str("AUD")?),
+                    ),
+                    (
+                        home_account(),
+                        Money::new(50, 2, Currency::from_str("AUD")?),
+                    ),
+                ]),
+                transaction: &transactions[1],
+            },
+            Balance {
+                values: BTreeMap::from([
+                    (
+                        spending_account(),
+                        Money::new(16600, 2, Currency::from_str("AUD")?),
+                    ),
+                    (
+                        home_account(),
+                        Money::new(-19950, 2, Currency::from_str("AUD")?),
+                    ),
+                ]),
+                transaction: &transactions[2],
+            },
+            Balance {
+                values: BTreeMap::from([
+                    (
+                        spending_account(),
+                        Money::new(16500, 2, Currency::from_str("AUD")?),
+                    ),
+                    (
+                        home_account(),
+                        Money::new(-19850, 2, Currency::from_str("AUD")?),
+                    ),
+                ]),
+                transaction: &transactions[3],
+            },
+        ]);
+
+        assert_eq!(expected, actual);
+        Ok(())
+    }
 }

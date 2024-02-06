@@ -311,6 +311,7 @@ mod tests {
         let actual = Transaction::from_up(up_transaction, &accounts)?;
         let expected = Transaction {
             id: "5ce7c223-0188-4b68-8d19-227a7cc3464d".to_string(),
+            imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-02T13:44:15+11:00")?,
             amount: Money::new(-57_84, 2, Currency::Aud),
             kind: Kind::Expense {
@@ -332,6 +333,7 @@ mod tests {
         let actual = Transaction::from_up(up_transaction, &accounts)?;
         let expected = Transaction {
             id: "9f08959d-51d2-43a8-a45a-154373870094".to_string(),
+            imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-27T05:08:06+11:00")?,
             amount: Money::new(10_95, 2, Currency::Aud),
             kind: Kind::Expense {
@@ -353,6 +355,7 @@ mod tests {
         let actual = Transaction::from_up(up_transaction, &accounts)?;
         let expected = Transaction {
             id: "f1b6981f-94d2-42b6-9cae-304dae08a480".to_string(),
+            imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-07T22:35:56+11:00")?,
             amount: Money::new(37_94, 2, Currency::Aud),
             kind: Kind::Transfer {
@@ -396,6 +399,7 @@ mod tests {
         let actual = Transaction::from_up(up_transaction, &accounts)?;
         let expected = Transaction {
             id: "a0f9976c-d0ac-4cef-afd6-91bbc0033730".to_string(),
+            imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-28T22:49:40+11:00")?,
             amount: Money::new(-12_99, 2, Currency::Aud),
             kind: Kind::Expense {
@@ -417,6 +421,7 @@ mod tests {
         let actual = Transaction::from_up(up_transaction, &accounts)?;
         let expected = Transaction {
             id: "66e3f7f3-e766-4095-adbb-19f3e1271646".to_string(),
+            imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-08-03T13:07:33+10:00")?,
             amount: Money::new(1_00, 2, Currency::Aud),
             kind: Kind::Transfer {
@@ -443,12 +448,13 @@ mod tests {
             memo: None,
             approved: Some(true),
             flag_color: None,
-            import_id: None,
+            import_id: Some(Some("hi".to_string())),
             subtransactions: None,
         };
 
         let actual = Transaction {
             id: "hi".to_string(),
+            imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-02T13:44:15+11:00")?,
             amount: Money::new(-57_84, 2, Currency::Aud),
             kind: Kind::Expense {
@@ -476,12 +482,13 @@ mod tests {
             category_id: None,
             approved: Some(true),
             flag_color: None,
-            import_id: None,
+            import_id: Some(Some("hi".to_string())),
             subtransactions: None,
         };
 
         let actual = Transaction {
             id: "hi".to_string(),
+            imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-07T22:35:56+11:00")?,
             amount: Money::new(37_94, 2, Currency::Aud),
             kind: Kind::Transfer {

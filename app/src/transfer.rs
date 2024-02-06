@@ -147,6 +147,7 @@ mod tests {
     fn match_transfers_valid() -> Result<()> {
         let from = Transaction {
             id: "from".to_string(),
+            imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-02T13:44:15+11:00")?,
             amount: Money::new(57_84, 2, Currency::Aud),
             kind: Kind::Transfer {
@@ -157,6 +158,7 @@ mod tests {
         };
         let to = Transaction {
             id: "to".to_string(),
+            imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-02T13:44:30+11:00")?,
             amount: Money::new(-57_84, 2, Currency::Aud),
             kind: Kind::Transfer {
@@ -168,7 +170,10 @@ mod tests {
         let transactions = [to.clone(), from.clone()];
         let actual = match_transfers(&transactions)?;
         let expected = TransferMatches {
-            matched: Vec::from([TransferPair { to, from }]),
+            matched: Vec::from([TransferPair {
+                to: &to,
+                from: &from,
+            }]),
             unmatched: Vec::new(),
         };
 
@@ -180,6 +185,7 @@ mod tests {
     fn match_transfers_dangling() -> Result<()> {
         let from = Transaction {
             id: "from".to_string(),
+            imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-02T13:44:15+11:00")?,
             amount: Money::new(57_84, 2, Currency::Aud),
             kind: Kind::Transfer {
@@ -191,6 +197,7 @@ mod tests {
 
         let to = Transaction {
             id: "to".to_string(),
+            imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-02T13:44:17+11:00")?,
             amount: Money::new(-57_84, 2, Currency::Aud),
             kind: Kind::Transfer {
@@ -202,6 +209,7 @@ mod tests {
 
         let unrelated = Transaction {
             id: "unrelated".to_string(),
+            imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-02T13:44:16+11:00")?,
             amount: Money::new(-14_23, 2, Currency::Aud),
             kind: Kind::Expense {
@@ -214,8 +222,11 @@ mod tests {
         let transactions = [from.clone(), unrelated.clone(), to.clone()];
         let actual = match_transfers(&transactions)?;
         let expected = TransferMatches {
-            matched: Vec::from([TransferPair { to, from }]),
-            unmatched: Vec::from([unrelated]),
+            matched: Vec::from([TransferPair {
+                to: &to,
+                from: &from,
+            }]),
+            unmatched: Vec::from([&unrelated]),
         };
 
         assert_eq!(expected, actual);
@@ -226,6 +237,7 @@ mod tests {
     fn match_transfers_too_new() -> Result<()> {
         let from = Transaction {
             id: "from".to_string(),
+            imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-02T13:44:30+11:00")?,
             amount: Money::new(57_84, 2, Currency::Aud),
             kind: Kind::Transfer {
@@ -237,6 +249,7 @@ mod tests {
 
         let to = Transaction {
             id: "to".to_string(),
+            imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-02T13:44:14+11:00")?,
             amount: Money::new(-57_84, 2, Currency::Aud),
             kind: Kind::Transfer {
@@ -250,7 +263,7 @@ mod tests {
         let actual = match_transfers(&transactions)?;
         let expected = TransferMatches {
             matched: Vec::new(),
-            unmatched: Vec::from([to, from]),
+            unmatched: Vec::from([&to, &from]),
         };
 
         assert_eq!(expected, actual);
@@ -261,6 +274,7 @@ mod tests {
     fn match_transfers_too_old() -> Result<()> {
         let from = Transaction {
             id: "from".to_string(),
+            imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-02T13:44:30+11:00")?,
             amount: Money::new(57_84, 2, Currency::Aud),
             kind: Kind::Transfer {
@@ -272,6 +286,7 @@ mod tests {
 
         let to = Transaction {
             id: "to".to_string(),
+            imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-02T13:44:46+11:00")?,
             amount: Money::new(-57_84, 2, Currency::Aud),
             kind: Kind::Transfer {
@@ -285,7 +300,7 @@ mod tests {
         let actual = match_transfers(&transactions)?;
         let expected = TransferMatches {
             matched: Vec::new(),
-            unmatched: Vec::from([to, from]),
+            unmatched: Vec::from([&to, &from]),
         };
 
         assert_eq!(expected, actual);
