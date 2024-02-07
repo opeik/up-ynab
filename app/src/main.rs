@@ -28,6 +28,7 @@ async fn main() -> Result<()> {
         ))
         .extract::<Config>()?;
 
+    // TODO: replace this with a proc macro
     match cli.command {
         Commands::Sync(args) => {
             cmd::sync::sync(&config, args).await?;
