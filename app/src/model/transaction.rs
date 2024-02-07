@@ -5,7 +5,7 @@ use color_eyre::eyre::{Context, ContextCompat, Result};
 use money2::{Currency, Money};
 use ynab_client::models::TransactionClearedStatus;
 
-use crate::{model::Account, NewYnabTransaction, YnabBudget};
+use crate::{model::Account, NewYnabTransaction, UpdateYnabTransaction, YnabBudget};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct UpTransaction(pub up_client::models::TransactionResource);
@@ -15,8 +15,8 @@ pub struct YnabTransaction(pub ynab_client::models::TransactionDetail);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
-    Expense { to: Account, from_name: String },
-    Transfer { to: Account, from: Account },
+    External { to: Account, from_name: String },
+    Internal { to: Account, from: Account },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -32,52 +32,52 @@ pub struct Transaction {
 impl Transaction {
     pub fn to(&self) -> &Account {
         match &self.kind {
-            Kind::Expense { to, from_name: _ } => to,
-            Kind::Transfer { to, from: _ } => to,
+            Kind::External { to, from_name: _ } => to,
+            Kind::Internal { to, from: _ } => to,
         }
     }
 
     pub fn to_name(&self) -> &str {
         match &self.kind {
-            Kind::Expense { to, from_name: _ } => &to.name,
-            Kind::Transfer { to, from: _ } => &to.name,
+            Kind::External { to, from_name: _ } => &to.name,
+            Kind::Internal { to, from: _ } => &to.name,
         }
     }
 
     pub fn from(&self) -> Option<&Account> {
         match &self.kind {
-            Kind::Expense {
+            Kind::External {
                 to: _,
                 from_name: _,
             } => None,
-            Kind::Transfer { to: _, from } => Some(from),
+            Kind::Internal { to: _, from } => Some(from),
         }
     }
 
     pub fn from_name(&self) -> &str {
         match &self.kind {
-            Kind::Expense { to: _, from_name } => from_name,
-            Kind::Transfer { to: _, from } => &from.name,
+            Kind::External { to: _, from_name } => from_name,
+            Kind::Internal { to: _, from } => &from.name,
         }
     }
 
-    pub fn is_transfer(&self) -> bool {
+    pub fn is_internal(&self) -> bool {
         match &self.kind {
-            Kind::Expense {
+            Kind::External {
                 to: _,
                 from_name: _,
             } => false,
-            Kind::Transfer { to: _, from: _ } => true,
+            Kind::Internal { to: _, from: _ } => true,
         }
     }
 
-    pub fn is_expense(&self) -> bool {
+    pub fn is_external(&self) -> bool {
         match &self.kind {
-            Kind::Expense {
+            Kind::External {
                 to: _,
                 from_name: _,
             } => true,
-            Kind::Transfer { to: _, from: _ } => false,
+            Kind::Internal { to: _, from: _ } => false,
         }
     }
 
@@ -90,7 +90,7 @@ impl Transaction {
             && self.kind == other.kind
     }
 
-    pub fn to_ynab(self) -> Result<NewYnabTransaction> {
+    pub fn to_new_ynab(self) -> Result<NewYnabTransaction> {
         let amount = i64::try_from(self.amount.amount.mantissa() * 10)
             .wrap_err("failed to convert amount")?;
 
@@ -110,11 +110,46 @@ impl Transaction {
         };
 
         match &self.kind {
-            Kind::Expense { to, from_name } => {
+            Kind::External { to, from_name } => {
                 transaction.account_id = Some(to.ynab_id);
                 transaction.payee_name = Some(Some(from_name.clone()));
             }
-            Kind::Transfer { to, from } => {
+            Kind::Internal { to, from } => {
+                transaction.account_id = Some(to.ynab_id);
+                transaction.payee_id = Some(Some(from.ynab_transfer_id));
+            }
+        }
+
+        Ok(transaction)
+    }
+
+    // TODO: reduce duplication
+    pub fn to_update_ynab(self) -> Result<UpdateYnabTransaction> {
+        let amount = i64::try_from(self.amount.amount.mantissa() * 10)
+            .wrap_err("failed to convert amount")?;
+
+        let mut transaction = UpdateYnabTransaction {
+            id: Some(self.id.clone()),
+            date: Some(self.time.to_rfc3339()),
+            amount: Some(amount),
+            memo: self.msg.clone().map(Some),
+            cleared: None,
+            approved: None,
+            account_id: None,
+            payee_id: None,
+            payee_name: None,
+            category_id: None,
+            flag_color: None,
+            import_id: None,
+            subtransactions: None,
+        };
+
+        match &self.kind {
+            Kind::External { to, from_name } => {
+                transaction.account_id = Some(to.ynab_id);
+                transaction.payee_name = Some(Some(from_name.clone()));
+            }
+            Kind::Internal { to, from } => {
                 transaction.account_id = Some(to.ynab_id);
                 transaction.payee_id = Some(Some(from.ynab_transfer_id));
             }
@@ -124,7 +159,7 @@ impl Transaction {
     }
 
     pub fn is_normalized(&self) -> bool {
-        self.is_expense() || (self.is_transfer() && self.amount.amount.is_sign_positive())
+        self.is_external() || (self.is_internal() && self.amount.amount.is_sign_positive())
     }
 }
 
@@ -158,20 +193,20 @@ impl UpTransaction {
         };
 
         let kind = if let Some(from) = from {
-            Kind::Transfer { to, from }
+            Kind::Internal { to, from }
         } else {
-            Kind::Expense {
+            Kind::External {
                 to,
                 from_name: value.attributes.description.clone(),
             }
         };
 
         let msg = match kind {
-            Kind::Expense {
+            Kind::External {
                 to: _,
                 from_name: _,
             } => value.attributes.message,
-            Kind::Transfer { to: _, from: _ } => Some(value.attributes.description),
+            Kind::Internal { to: _, from: _ } => Some(value.attributes.description),
         };
 
         let mut amount = Money::new(
@@ -222,9 +257,9 @@ impl YnabTransaction {
         };
 
         let kind = if let Some(from) = from {
-            Kind::Transfer { to, from }
+            Kind::Internal { to, from }
         } else {
-            Kind::Expense {
+            Kind::External {
                 to,
                 from_name: value
                     .payee_name
@@ -235,11 +270,11 @@ impl YnabTransaction {
         };
 
         let msg = match &kind {
-            Kind::Expense {
+            Kind::External {
                 to: _,
                 from_name: _,
             } => value.memo,
-            Kind::Transfer { to: _, from: _ } => value.memo,
+            Kind::Internal { to: _, from: _ } => value.memo,
         }
         .wrap_err("missing memo")?;
 
@@ -323,7 +358,7 @@ mod test {
             imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-02T13:44:15+11:00")?,
             amount: Money::new(-57_84, 2, Currency::Aud),
-            kind: Kind::Expense {
+            kind: Kind::External {
                 to: spending_account(),
                 from_name: "7-Eleven".to_string(),
             },
@@ -345,7 +380,7 @@ mod test {
             imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-27T05:08:06+11:00")?,
             amount: Money::new(10_95, 2, Currency::Aud),
-            kind: Kind::Expense {
+            kind: Kind::External {
                 to: spending_account(),
                 from_name: "Z KIDD-SMITH".to_string(),
             },
@@ -367,7 +402,7 @@ mod test {
             imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-07T22:35:56+11:00")?,
             amount: Money::new(37_94, 2, Currency::Aud),
-            kind: Kind::Transfer {
+            kind: Kind::Internal {
                 to: spending_account(),
                 from: home_account(),
             },
@@ -411,7 +446,7 @@ mod test {
             imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-28T22:49:40+11:00")?,
             amount: Money::new(-12_99, 2, Currency::Aud),
-            kind: Kind::Expense {
+            kind: Kind::External {
                 to: spending_account(),
                 from_name: "Amazon".to_string(),
             },
@@ -433,7 +468,7 @@ mod test {
             imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-08-03T13:07:33+10:00")?,
             amount: Money::new(1_00, 2, Currency::Aud),
-            kind: Kind::Transfer {
+            kind: Kind::Internal {
                 to: home_account(),
                 from: spending_account(),
             },
@@ -466,13 +501,13 @@ mod test {
             imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-02T13:44:15+11:00")?,
             amount: Money::new(-57_84, 2, Currency::Aud),
-            kind: Kind::Expense {
+            kind: Kind::External {
                 to: spending_account(),
                 from_name: "7-Eleven".to_string(),
             },
             msg: None,
         }
-        .to_ynab()?;
+        .to_new_ynab()?;
 
         assert_eq!(expected, actual);
         Ok(())
@@ -500,13 +535,13 @@ mod test {
             imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-07T22:35:56+11:00")?,
             amount: Money::new(37_94, 2, Currency::Aud),
-            kind: Kind::Transfer {
+            kind: Kind::Internal {
                 to: spending_account(),
                 from: home_account(),
             },
             msg: Some("Transfer from Home".to_string()),
         }
-        .to_ynab()?;
+        .to_new_ynab()?;
 
         assert_eq!(expected, actual);
         Ok(())

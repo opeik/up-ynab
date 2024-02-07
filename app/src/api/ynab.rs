@@ -12,6 +12,7 @@ pub struct Client {
 
 #[derive(Debug, Clone, derive_builder::Builder)]
 #[builder(pattern = "owned", setter(into), build_fn(private))]
+#[builder_struct_attr(must_use)]
 pub struct GetAccountsParams<'a> {
     #[builder(private)]
     client: &'a Client,
@@ -26,6 +27,7 @@ pub struct GetAccountsParams<'a> {
 
 #[derive(Debug, Clone, derive_builder::Builder)]
 #[builder(pattern = "owned", setter(into), build_fn(private))]
+#[builder_struct_attr(must_use)]
 pub struct GetBudgetsParams<'a> {
     #[builder(private)]
     client: &'a Client,
@@ -36,6 +38,7 @@ pub struct GetBudgetsParams<'a> {
 
 #[derive(Debug, Clone, derive_builder::Builder)]
 #[builder(pattern = "owned", setter(into), build_fn(private))]
+#[builder_struct_attr(must_use)]
 pub struct GetTransactionsParams<'a> {
     #[builder(private)]
     client: &'a Client,
@@ -57,13 +60,28 @@ pub struct GetTransactionsParams<'a> {
 
 #[derive(Debug, Clone, derive_builder::Builder)]
 #[builder(pattern = "owned", setter(into), build_fn(private))]
+#[builder_struct_attr(must_use)]
 pub struct NewTransactionsParams<'a> {
     #[builder(private)]
     client: &'a Client,
-    /// The id of the budget. `last-used` can be used to specify the last used budget and `default` can be used if default budget selection is enabled (see: https://api.ynab.com/#oauth-default-budget).
+    /// The id of the budget. `last-used` can be used to specify the last used budget and
+    /// `default` can be used if default budget selection is enabled (see: https://api.ynab.com/#oauth-default-budget).
     pub budget_id: String,
-    /// The transaction or transactions to create.
+    /// The transactions to create.
     pub transactions: Vec<models::SaveTransaction>,
+}
+
+#[derive(Debug, Clone, derive_builder::Builder)]
+#[builder(pattern = "owned", setter(into), build_fn(private))]
+#[builder_struct_attr(must_use)]
+pub struct UpdateTransactionsParams<'a> {
+    #[builder(private)]
+    client: &'a Client,
+    /// The id of the budget. `last-used` can be used to specify the last used budget and
+    /// `default` can be used if default budget selection is enabled (see: https://api.ynab.com/#oauth-default-budget).
+    pub budget_id: String,
+    /// The transactions to update.
+    pub transactions: Vec<models::SaveTransactionWithId>,
 }
 
 impl<'a> GetAccountsParams<'a> {
@@ -101,6 +119,17 @@ impl<'a> NewTransactionsParams<'a> {
             data: models::PostTransactionsWrapper {
                 transaction: None,
                 transactions: Some(self.transactions),
+            },
+        }
+    }
+}
+
+impl<'a> UpdateTransactionsParams<'a> {
+    fn into_api(self) -> transactions_api::UpdateTransactionsParams {
+        transactions_api::UpdateTransactionsParams {
+            budget_id: self.budget_id,
+            data: ynab_client::models::PatchTransactionsWrapper {
+                transactions: self.transactions,
             },
         }
     }
@@ -157,6 +186,18 @@ impl<'a> NewTransactionsParamsBuilder<'a> {
     }
 }
 
+impl<'a> UpdateTransactionsParamsBuilder<'a> {
+    pub async fn send(self) -> Result<models::SaveTransactionsResponseData> {
+        let params = self.build().wrap_err("failed to build parameters")?;
+        Ok(
+            *transactions_api::update_transactions(&params.client.config, params.into_api())
+                .await
+                .wrap_err("failed to create transactions")?
+                .data,
+        )
+    }
+}
+
 impl Client {
     pub fn new(api_token: &str) -> Self {
         Self {
@@ -197,6 +238,14 @@ impl Client {
     /// transactions cannot be created on this endpoint.
     pub fn new_transactions(&self) -> NewTransactionsParamsBuilder<'_> {
         NewTransactionsParamsBuilder {
+            client: Some(self),
+            ..Default::default()
+        }
+    }
+
+    /// Updates multiple transactions.
+    pub fn update_transactions(&self) -> UpdateTransactionsParamsBuilder<'_> {
+        UpdateTransactionsParamsBuilder {
             client: Some(self),
             ..Default::default()
         }

@@ -26,6 +26,7 @@ const PAGE_SIZE: i32 = 100;
 
 #[derive(Debug, Clone, derive_builder::Builder)]
 #[builder(pattern = "owned", setter(into), build_fn(private))]
+#[builder_struct_attr(must_use)]
 pub struct GetTransactionsParams<'a> {
     #[builder(private)]
     client: &'a Client,
@@ -54,6 +55,7 @@ pub struct GetTransactionsParams<'a> {
 
 #[derive(Debug, Clone, derive_builder::Builder)]
 #[builder(pattern = "owned", setter(into), build_fn(private))]
+#[builder_struct_attr(must_use)]
 pub struct GetAccountsParams<'a> {
     #[builder(private)]
     client: &'a Client,

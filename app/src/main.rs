@@ -1,4 +1,3 @@
-#![feature(let_chains)]
 use std::path::PathBuf;
 
 use clap::Parser;

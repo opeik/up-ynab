@@ -27,8 +27,8 @@ pub fn running_balance(transactions: &[Transaction]) -> Vec<Balance> {
         let mut new_values = last_balance.values;
 
         let to = match &transaction.kind {
-            transaction::Kind::Expense { to, from_name: _ } => to,
-            transaction::Kind::Transfer { to, from } => {
+            transaction::Kind::External { to, from_name: _ } => to,
+            transaction::Kind::Internal { to, from } => {
                 new_values
                     .entry(from.clone())
                     .and_modify(|x| *x -= transaction.amount)
@@ -79,11 +79,11 @@ pub fn write_balance_csv<P: AsRef<Path>>(balances: &[Balance], path: P) -> Resul
         let msg = balance.transaction.msg.clone();
         let kind = Some(
             match &balance.transaction.kind {
-                transaction::Kind::Expense {
+                transaction::Kind::External {
                     to: _,
                     from_name: _,
-                } => "expense",
-                transaction::Kind::Transfer { to: _, from: _ } => "transfer",
+                } => "external",
+                transaction::Kind::Internal { to: _, from: _ } => "internal",
             }
             .to_owned(),
         );
@@ -120,11 +120,11 @@ impl<'a> fmt::Display for Balance<'a> {
             .join("\n");
 
         let kind = match &self.transaction.kind {
-            transaction::Kind::Expense {
+            transaction::Kind::External {
                 to: _,
                 from_name: _,
             } => "expense",
-            transaction::Kind::Transfer { to: _, from: _ } => "transfer",
+            transaction::Kind::Internal { to: _, from: _ } => "transfer",
         };
 
         let time = self.transaction.time.to_rfc3339();

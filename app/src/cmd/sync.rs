@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
-use color_eyre::eyre::{eyre, ContextCompat, Result};
-use itertools::Itertools;
+use color_eyre::eyre::{ContextCompat, Result};
 use tracing::{error, info};
 use uuid::Uuid;
 
@@ -49,9 +48,10 @@ pub async fn sync(config: &Config, args: Args) -> Result<()> {
                 .map(|x| x.to_transaction(&budget, &accounts))
                 .collect::<Result<Vec<_>>>()
         })
-        .transpose()?;
+        .transpose()?
+        .unwrap_or_default();
 
-    let transactions = run
+    let up_transactions = run
         .up_transactions
         .unwrap_or_default()
         .into_iter()
@@ -61,83 +61,83 @@ pub async fn sync(config: &Config, args: Args) -> Result<()> {
         .filter(|x| x.is_normalized())
         .collect::<Vec<_>>();
 
-    let missing_transactions = ynab_transactions
-        .as_ref()
-        .map(|ynab_transactions| missing_transactions(&transactions, ynab_transactions))
-        .unwrap_or_default();
+    let missing_transactions = find_missing_transactions(&up_transactions, &ynab_transactions);
+    let modified_transactions = find_modified_transactions(&up_transactions, &ynab_transactions);
 
-    let not_eq_transactions = ynab_transactions
-        .as_ref()
-        .map(|ynab_transactions| not_eq_transactions(&transactions, ynab_transactions))
-        .unwrap_or_default();
-
-    if missing_transactions.is_empty() {
-        info!("all up transactions exist in ynab!",);
-    } else {
+    if !missing_transactions.is_empty() {
         info!(
-            "found {} missing up transactions in ynab",
+            "creating {} missing transactions in ynab...",
             missing_transactions.len()
         );
-    }
 
-    if not_eq_transactions.is_empty() {
-        info!("all up transactions are unmodified in ynab!",);
-    } else {
-        info!(
-            "found {} up transactions modified in ynab",
-            not_eq_transactions.len()
-        );
-    }
+        if !args.dry_run {
+            let count = missing_transactions.len();
+            let new_ynab_transactions = missing_transactions
+                .into_iter()
+                .cloned()
+                .map(|x| x.to_new_ynab())
+                .collect::<Result<Vec<_>>>()?;
 
-    let new_ynab_transactions = missing_transactions
-        .into_iter()
-        .map(|x| x.clone().to_ynab())
-        .inspect(|x| {
-            if let Err(e) = x {
-                error!("failed to convert to new ynab transaction: {e}")
+            // TODO: check equality against returned transactions
+            let response = ynab_client
+                .new_transactions()
+                .budget_id(budget_id)
+                .transactions(new_ynab_transactions)
+                .send()
+                .await?;
+
+            let num_failed = count - response.transaction_ids.len();
+            if num_failed != 0 {
+                error!("failed to create {} transactions", num_failed)
             }
-        })
-        .collect::<Result<Vec<_>>>()?;
-
-    if new_ynab_transactions.is_empty() {
-        info!("nothing to do, stopping...");
-        return Ok(());
-    } else if args.dry_run {
-        info!("dry run, skipping creating ynab transactions");
-        return Ok(());
+        } else {
+            info!("dry run, skipping...");
+        }
+    } else {
+        info!("all transactions exist in ynab!")
     }
 
-    info!(
-        "creating ynab {} transactions...",
-        new_ynab_transactions.len()
-    );
-    let num_transactions = new_ynab_transactions.len();
-    let response = ynab_client
-        .new_transactions()
-        .budget_id(budget_id)
-        .transactions(new_ynab_transactions)
-        .send()
-        .await?;
+    if !modified_transactions.is_empty() {
+        info!(
+            "updating {} modified transactions in ynab...",
+            modified_transactions.len()
+        );
 
-    let num_missing =
-        num_transactions - response.transactions.as_ref().unwrap_or(&Vec::new()).len();
-    if num_missing != 0 {
-        error!("failed to create {num_missing} transactions");
+        if !args.dry_run {
+            let count = modified_transactions.len();
+            let updated_ynab_transactions = modified_transactions
+                .into_iter()
+                .map(|(source, remote)| {
+                    let mut x = source.clone().to_update_ynab()?;
+                    x.id = Some(remote.id.clone());
+                    Ok(x)
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+            // TODO: check equality against returned transactions
+            let response = ynab_client
+                .update_transactions()
+                .budget_id(budget_id)
+                .transactions(updated_ynab_transactions)
+                .send()
+                .await?;
+
+            let num_failed = count - response.transaction_ids.len();
+            if num_failed != 0 {
+                error!("failed to update {} transactions", num_failed)
+            }
+        } else {
+            info!("dry run, skipping...");
+        }
+    } else {
+        info!("all transactions unmodified in ynab!")
     }
 
-    if let Some(duplicate_ids) = response.duplicate_import_ids
-        && !duplicate_ids.is_empty()
-    {
-        return Err(eyre!(
-            "found duplicate transaction ids: {}",
-            duplicate_ids.iter().join(", ")
-        ));
-    }
-
+    info!("done!");
     Ok(())
 }
 
-fn missing_transactions<'a>(
+fn find_missing_transactions<'a>(
     source_transactions: &'a [Transaction],
     remote_transactions: &'a [Transaction],
 ) -> Vec<&'a Transaction> {
@@ -163,10 +163,10 @@ fn missing_transactions<'a>(
     missing_transactions
 }
 
-fn not_eq_transactions<'a>(
+fn find_modified_transactions<'a>(
     source_transactions: &'a [Transaction],
     remote_transactions: &'a [Transaction],
-) -> Vec<&'a Transaction> {
+) -> Vec<(&'a Transaction, &'a Transaction)> {
     let source_transactions_by_id = source_transactions
         .iter()
         .map(|x| (x.id.as_str(), x))
@@ -182,8 +182,7 @@ fn not_eq_transactions<'a>(
         .iter()
         .map(|(k, v)| (k, (v, remote_transactions_by_id.get(k))))
         .filter(|(_, (a, b))| b.map(|b| !a.is_equivalent(b)).unwrap_or_default())
-        .map(|(k, _)| source_transactions_by_id.get(k).unwrap())
-        .copied()
+        .map(|(_, (a, b))| (*a, *b.unwrap()))
         .collect::<Vec<_>>();
 
     not_eq_transactions

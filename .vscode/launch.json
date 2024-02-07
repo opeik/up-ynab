@@ -7,7 +7,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'up_ynab'",
+            "name": "Sync",
             "cargo": {
                 "args": [
                     "build",
@@ -20,17 +20,15 @@
                 }
             },
             "args": [
-                "get",
-                "balance",
-                "up",
-                "--in-path=${workspaceFolder}/runs/2024-02-04T15:38:49.464103+00:00",
+                "sync",
+                "--in-path=runs/2024-02-07T14:13:29.459216+00:00"
             ],
             "cwd": "${workspaceFolder}"
         },
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'up_ynab'",
+            "name": "Debug unit tests",
             "cargo": {
                 "args": [
                     "test",
@@ -46,43 +44,5 @@
             "args": [],
             "cwd": "${workspaceFolder}"
         },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in library 'up'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--lib",
-                    "--package=up"
-                ],
-                "filter": {
-                    "name": "up",
-                    "kind": "lib"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in library 'ynab'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--lib",
-                    "--package=ynab"
-                ],
-                "filter": {
-                    "name": "ynab",
-                    "kind": "lib"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        }
     ]
 }
