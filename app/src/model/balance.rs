@@ -5,7 +5,7 @@ use indoc::{formatdoc, writedoc};
 use itertools::Itertools;
 use money2::Money;
 
-use crate::{transaction, Account, Transaction};
+use crate::model::{transaction, Account, Transaction};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Balance<'a> {
@@ -159,7 +159,7 @@ impl<'a> fmt::Display for Balance<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use std::{fs, str::FromStr};
 
     use money2::Currency;
@@ -167,7 +167,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::{normalize_up_transactions, Account, UpTransaction};
+    use crate::{model::Account, UpTransaction};
 
     fn spending_account() -> Account {
         Account {
@@ -191,13 +191,26 @@ mod tests {
         Vec::from([home_account(), spending_account()])
     }
 
+    fn transactions_from_file<P: AsRef<Path>>(
+        path: P,
+        accounts: &[Account],
+    ) -> Result<Vec<Transaction>> {
+        let payload = fs::read_to_string(path)?;
+        let up_transactions = serde_json::from_str::<Vec<UpTransaction>>(&payload)?;
+        let transactions = up_transactions
+            .into_iter()
+            .map(|x| Transaction::from_up(x.clone(), accounts))
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .filter(|x| x.is_normalized())
+            .collect::<Vec<_>>();
+        Ok(transactions)
+    }
+
     #[test]
     fn up_round_up_balance() -> Result<()> {
-        let payload = fs::read_to_string("test/data/up_round_up_balance.json")?;
         let accounts = accounts();
-        let up_transactions = serde_json::from_str::<Vec<UpTransaction>>(&payload)?;
-        let transactions = normalize_up_transactions(&up_transactions, &accounts)?;
-
+        let transactions = transactions_from_file("test/data/up_round_up_balance.json", &accounts)?;
         let actual = running_balance(&transactions);
         let expected = Vec::from([
             Balance {
@@ -235,10 +248,8 @@ mod tests {
 
     #[test]
     fn up_transfer_balance() -> Result<()> {
-        let payload = fs::read_to_string("test/data/up_transfer_balance.json")?;
         let accounts = accounts();
-        let up_transactions = serde_json::from_str::<Vec<UpTransaction>>(&payload)?;
-        let transactions = normalize_up_transactions(&up_transactions, &accounts)?;
+        let transactions = transactions_from_file("test/data/up_transfer_balance.json", &accounts)?;
 
         let actual = running_balance(&transactions);
         let expected = Vec::from([
@@ -270,10 +281,8 @@ mod tests {
 
     #[test]
     fn up_balance_sussy_round_up() -> Result<()> {
-        let payload = fs::read_to_string("test/data/up_sussy_round_up.json")?;
         let accounts = accounts();
-        let up_transactions = serde_json::from_str::<Vec<UpTransaction>>(&payload)?;
-        let transactions = normalize_up_transactions(&up_transactions, &accounts)?;
+        let transactions = transactions_from_file("test/data/up_sussy_round_up.json", &accounts)?;
 
         let actual = running_balance(&transactions);
         let expected = Vec::from([

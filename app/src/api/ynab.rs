@@ -15,8 +15,8 @@ pub struct Client {
 pub struct GetAccountsParams<'a> {
     #[builder(private)]
     client: &'a Client,
-    /// The id of the budget. \"last-used\" can be used to specify the last used budget and
-    /// \"default\" can be used if default budget selection is enabled (see: https://api.ynab.com/#oauth-default-budget).
+    /// The id of the budget. `last-used` can be used to specify the last used budget and
+    /// `default` can be used if default budget selection is enabled (see: https://api.ynab.com/#oauth-default-budget).
     budget_id: String,
     /// The starting server knowledge.  If provided, only entities that have changed since
     /// `last_knowledge_of_server` will be included.
@@ -39,14 +39,14 @@ pub struct GetBudgetsParams<'a> {
 pub struct GetTransactionsParams<'a> {
     #[builder(private)]
     client: &'a Client,
-    /// The id of the budget. \"last-used\" can be used to specify the last used budget and
-    ///  \"default\" can be used if default budget selection is enabled (see: https://api.ynab.com/#oauth-default-budget).
+    /// The id of the budget. `last-used` can be used to specify the last used budget and
+    ///  `default` can be used if default budget selection is enabled (see: https://api.ynab.com/#oauth-default-budget).
     pub budget_id: String,
     /// If specified, only transactions on or after this date will be included.
     #[builder(default)]
     pub since_date: Option<DateTime<FixedOffset>>,
-    /// If specified, only transactions of the specified type will be included. \"uncategorized\"
-    /// and \"unapproved\" are currently supported.
+    /// If specified, only transactions of the specified type will be included. `uncategorized`
+    /// and `unapproved` are currently supported.
     #[builder(default)]
     pub kind: Option<String>,
     /// The starting server knowledge.  If provided, only entities that have changed since
@@ -60,7 +60,7 @@ pub struct GetTransactionsParams<'a> {
 pub struct NewTransactionsParams<'a> {
     #[builder(private)]
     client: &'a Client,
-    /// The id of the budget. \"last-used\" can be used to specify the last used budget and \"default\" can be used if default budget selection is enabled (see: https://api.ynab.com/#oauth-default-budget).
+    /// The id of the budget. `last-used` can be used to specify the last used budget and `default` can be used if default budget selection is enabled (see: https://api.ynab.com/#oauth-default-budget).
     pub budget_id: String,
     /// The transaction or transactions to create.
     pub transactions: Vec<models::SaveTransaction>,
@@ -191,7 +191,7 @@ impl Client {
         }
     }
 
-    /// /// Creates a single transaction or multiple transactions.  If you provide a body containing
+    /// Creates a single transaction or multiple transactions.  If you provide a body containing
     /// a `transaction` object, a single transaction will be created and if you provide a body
     /// containing a `transactions` array, multiple transactions will be created.  Scheduled
     /// transactions cannot be created on this endpoint.

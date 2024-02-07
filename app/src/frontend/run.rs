@@ -9,7 +9,10 @@ use color_eyre::eyre::{eyre, Context, ContextCompat, Result};
 use serde::{de::DeserializeOwned, Serialize};
 use tracing::{debug, error, info};
 
-use crate::{config::Config, UpAccount, UpTransaction, YnabAccount, YnabBudget, YnabTransaction};
+use crate::{
+    cmd, frontend::config::Config, UpAccount, UpTransaction, YnabAccount, YnabBudget,
+    YnabTransaction,
+};
 
 #[derive(Clone, Debug)]
 pub struct Run {
@@ -19,41 +22,6 @@ pub struct Run {
     pub ynab_transactions: Option<Vec<YnabTransaction>>,
     pub ynab_accounts: Option<Vec<YnabAccount>>,
     pub ynab_budgets: Option<Vec<YnabBudget>>,
-}
-
-pub async fn fetch_run(
-    config: &Config,
-    since: Option<DateTime<FixedOffset>>,
-    until: Option<DateTime<FixedOffset>>,
-) -> Result<Run> {
-    let mut run = Run::new();
-
-    let up_accounts = crate::fetch_up_accounts(config).await?;
-    run.write_up_accounts(&up_accounts)?;
-    info!("fetched {} up accounts", up_accounts.len());
-
-    let up_transactions = crate::fetch_up_transactions(config, since, until).await?;
-    run.write_up_transactions(&up_transactions)?;
-    info!("fetched {} up transactions", up_transactions.len());
-
-    let ynab_accounts = crate::fetch_ynab_accounts(config).await?;
-    run.write_ynab_accounts(&ynab_accounts)?;
-    info!("fetched {} ynab accounts", up_accounts.len());
-
-    let ynab_transactions = crate::fetch_ynab_transactions(config, since).await?;
-    run.write_ynab_transactions(&ynab_transactions)?;
-    info!("fetched {} ynab transactions", ynab_transactions.len());
-
-    let ynab_budgets = crate::fetch_ynab_budgets(config).await?;
-    run.write_ynab_budgets(&ynab_budgets)?;
-    info!("fetched {} ynab budgets", ynab_budgets.len());
-
-    run.up_accounts = Some(up_accounts);
-    run.up_transactions = Some(up_transactions);
-    run.ynab_accounts = Some(ynab_accounts);
-    run.ynab_transactions = Some(ynab_transactions);
-    run.ynab_budgets = Some(ynab_budgets);
-    Ok(run)
 }
 
 impl Default for Run {
@@ -76,6 +44,44 @@ impl Default for Run {
 impl Run {
     pub fn new() -> Self {
         Default::default()
+    }
+
+    pub async fn fetch(
+        config: &Config,
+        since: Option<DateTime<FixedOffset>>,
+        until: Option<DateTime<FixedOffset>>,
+    ) -> Result<Self> {
+        let mut run = Self::new();
+
+        let up_accounts = cmd::get::account::up(config).await?;
+        run.write_up_accounts(&up_accounts)?;
+        info!("fetched {} up accounts", up_accounts.len());
+
+        let up_transactions =
+            cmd::get::transaction::up(config, cmd::get::transaction::UpArgs { since, until })
+                .await?;
+        run.write_up_transactions(&up_transactions)?;
+        info!("fetched {} up transactions", up_transactions.len());
+
+        let ynab_accounts = cmd::get::account::ynab(config).await?;
+        run.write_ynab_accounts(&ynab_accounts)?;
+        info!("fetched {} ynab accounts", up_accounts.len());
+
+        let ynab_transactions =
+            cmd::get::transaction::ynab(config, cmd::get::transaction::YnabArgs { since }).await?;
+        run.write_ynab_transactions(&ynab_transactions)?;
+        info!("fetched {} ynab transactions", ynab_transactions.len());
+
+        let ynab_budgets = cmd::get::budget::ynab(config).await?;
+        run.write_ynab_budgets(&ynab_budgets)?;
+        info!("fetched {} ynab budgets", ynab_budgets.len());
+
+        run.up_accounts = Some(up_accounts);
+        run.up_transactions = Some(up_transactions);
+        run.ynab_accounts = Some(ynab_accounts);
+        run.ynab_transactions = Some(ynab_transactions);
+        run.ynab_budgets = Some(ynab_budgets);
+        Ok(run)
     }
 
     pub fn write(&self) -> Result<()> {

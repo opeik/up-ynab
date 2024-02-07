@@ -1,7 +1,7 @@
 use std::pin::Pin;
 
 use chrono::{DateTime, FixedOffset};
-use color_eyre::eyre::{Context, Result};
+use color_eyre::eyre::Context;
 use futures::{
     stream::{self},
     Stream,
@@ -10,6 +10,8 @@ use up_client::{
     apis::{accounts_api, configuration::Configuration, transactions_api, util, Error},
     models,
 };
+
+use crate::Result;
 
 #[derive(Debug, Clone)]
 pub struct Client {

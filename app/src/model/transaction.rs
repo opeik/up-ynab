@@ -5,7 +5,7 @@ use color_eyre::eyre::{Context, ContextCompat, Result};
 use money2::{Currency, Money};
 use ynab_client::models::TransactionClearedStatus;
 
-use crate::{Account, NewYnabTransaction, UpTransaction, YnabBudget, YnabTransaction};
+use crate::{model::Account, NewYnabTransaction, UpTransaction, YnabBudget, YnabTransaction};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
@@ -53,13 +53,6 @@ impl Transaction {
             Kind::Expense { to: _, from_name } => from_name,
             Kind::Transfer { to: _, from } => &from.name,
         }
-    }
-
-    pub fn is_round_up(&self) -> bool {
-        self.msg
-            .as_ref()
-            .map(|x| x == "Round Up")
-            .unwrap_or_default()
     }
 
     pub fn is_transfer(&self) -> bool {
@@ -152,8 +145,9 @@ impl Transaction {
         })
     }
 
-    pub fn sussy_eq(&self, other: &Self) -> bool {
-        Some(self.id.as_str()) == other.imported_id.as_deref()
+    pub fn mostly_eq(&self, other: &Self) -> bool {
+        (Some(self.id.as_str()) == other.imported_id.as_deref()
+            || self.imported_id.as_deref() == Some(other.id.as_str()))
             && self.time.date_naive() == other.time.date_naive()
             && self.amount == other.amount
             && self.msg == other.msg
@@ -269,17 +263,21 @@ impl Transaction {
 
         Ok(transaction)
     }
+
+    pub fn is_normalized(&self) -> bool {
+        self.is_expense() || (self.is_transfer() && self.amount.amount.is_sign_positive())
+    }
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use std::fs;
 
     use pretty_assertions::assert_eq;
     use uuid::Uuid;
 
     use super::*;
-    use crate::{Account, NewYnabTransaction, UpTransaction};
+    use crate::{model::Account, NewYnabTransaction, UpTransaction};
 
     fn spending_account() -> Account {
         Account {
