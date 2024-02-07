@@ -66,7 +66,7 @@ pub async fn sync(config: &Config, args: Args) -> Result<()> {
 
     if !missing_transactions.is_empty() {
         info!(
-            "creating {} missing transactions in ynab...",
+            "creating {} missing up transactions in ynab...",
             missing_transactions.len()
         );
 
@@ -94,12 +94,12 @@ pub async fn sync(config: &Config, args: Args) -> Result<()> {
             info!("dry run, skipping...");
         }
     } else {
-        info!("all transactions exist in ynab!")
+        info!("all up transactions exist in ynab!")
     }
 
     if !modified_transactions.is_empty() {
         info!(
-            "updating {} modified transactions in ynab...",
+            "updating {} modified up transactions in ynab...",
             modified_transactions.len()
         );
 
@@ -130,7 +130,7 @@ pub async fn sync(config: &Config, args: Args) -> Result<()> {
             info!("dry run, skipping...");
         }
     } else {
-        info!("all transactions unmodified in ynab!")
+        info!("all up transactions unmodified in ynab!")
     }
 
     info!("done!");
