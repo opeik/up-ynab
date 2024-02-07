@@ -46,7 +46,7 @@ pub async fn sync(config: &Config, args: Args) -> Result<()> {
         .ynab_transactions
         .map(|x| {
             x.into_iter()
-                .map(|x| Transaction::from_ynab(x, &budget, &accounts))
+                .map(|x| x.to_transaction(&budget, &accounts))
                 .collect::<Result<Vec<_>>>()
         })
         .transpose()?;
@@ -55,7 +55,7 @@ pub async fn sync(config: &Config, args: Args) -> Result<()> {
         .up_transactions
         .unwrap_or_default()
         .into_iter()
-        .map(|x| Transaction::from_up(x.clone(), &accounts))
+        .map(|x| x.to_transaction(&accounts))
         .collect::<Result<Vec<_>>>()?
         .into_iter()
         .filter(|x| x.is_normalized())
@@ -181,7 +181,7 @@ fn not_eq_transactions<'a>(
     let not_eq_transactions = source_transactions_by_id
         .iter()
         .map(|(k, v)| (k, (v, remote_transactions_by_id.get(k))))
-        .filter(|(_, (a, b))| b.map(|b| !a.mostly_eq(b)).unwrap_or_default())
+        .filter(|(_, (a, b))| b.map(|b| !a.is_equivalent(b)).unwrap_or_default())
         .map(|(k, _)| source_transactions_by_id.get(k).unwrap())
         .copied()
         .collect::<Vec<_>>();

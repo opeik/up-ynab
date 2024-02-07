@@ -5,7 +5,13 @@ use color_eyre::eyre::{Context, ContextCompat, Result};
 use money2::{Currency, Money};
 use ynab_client::models::TransactionClearedStatus;
 
-use crate::{model::Account, NewYnabTransaction, UpTransaction, YnabBudget, YnabTransaction};
+use crate::{model::Account, NewYnabTransaction, YnabBudget};
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UpTransaction(pub up_client::models::TransactionResource);
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct YnabTransaction(pub ynab_client::models::TransactionDetail);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
@@ -75,7 +81,56 @@ impl Transaction {
         }
     }
 
-    pub fn from_up(value: UpTransaction, accounts: &[Account]) -> Result<Self> {
+    pub fn is_equivalent(&self, other: &Self) -> bool {
+        (Some(self.id.as_str()) == other.imported_id.as_deref()
+            || self.imported_id.as_deref() == Some(other.id.as_str()))
+            && self.time.date_naive() == other.time.date_naive()
+            && self.amount == other.amount
+            && self.msg == other.msg
+            && self.kind == other.kind
+    }
+
+    pub fn to_ynab(self) -> Result<NewYnabTransaction> {
+        let amount = i64::try_from(self.amount.amount.mantissa() * 10)
+            .wrap_err("failed to convert amount")?;
+
+        let mut transaction = NewYnabTransaction {
+            date: Some(self.time.to_rfc3339()),
+            amount: Some(amount),
+            memo: self.msg.clone().map(Some),
+            cleared: Some(TransactionClearedStatus::Cleared),
+            approved: Some(true),
+            account_id: None,
+            payee_id: None,
+            payee_name: None,
+            category_id: None,
+            flag_color: None,
+            import_id: Some(Some(self.id)),
+            subtransactions: None,
+        };
+
+        match &self.kind {
+            Kind::Expense { to, from_name } => {
+                transaction.account_id = Some(to.ynab_id);
+                transaction.payee_name = Some(Some(from_name.clone()));
+            }
+            Kind::Transfer { to, from } => {
+                transaction.account_id = Some(to.ynab_id);
+                transaction.payee_id = Some(Some(from.ynab_transfer_id));
+            }
+        }
+
+        Ok(transaction)
+    }
+
+    pub fn is_normalized(&self) -> bool {
+        self.is_expense() || (self.is_transfer() && self.amount.amount.is_sign_positive())
+    }
+}
+
+impl UpTransaction {
+    pub fn to_transaction(self, accounts: &[Account]) -> Result<Transaction> {
+        let value = self.0;
         let to_id =
             Some(value.relationships.account.data.id.as_str()).wrap_err("missing `to` account")?;
         let from_id = value
@@ -135,7 +190,7 @@ impl Transaction {
                 .wrap_err("failed to add cashback amount")?;
         };
 
-        Ok(Self {
+        Ok(Transaction {
             id: value.id,
             imported_id: None,
             amount,
@@ -144,21 +199,11 @@ impl Transaction {
             time: DateTime::parse_from_rfc3339(&value.attributes.created_at)?,
         })
     }
+}
 
-    pub fn mostly_eq(&self, other: &Self) -> bool {
-        (Some(self.id.as_str()) == other.imported_id.as_deref()
-            || self.imported_id.as_deref() == Some(other.id.as_str()))
-            && self.time.date_naive() == other.time.date_naive()
-            && self.amount == other.amount
-            && self.msg == other.msg
-            && self.kind == other.kind
-    }
-
-    pub fn from_ynab(
-        value: YnabTransaction,
-        budget: &YnabBudget,
-        accounts: &[Account],
-    ) -> Result<Self> {
+impl YnabTransaction {
+    pub fn to_transaction(self, budget: &YnabBudget, accounts: &[Account]) -> Result<Transaction> {
+        let value = self.0;
         let to = accounts
             .iter()
             .find(|account| account.ynab_id == value.account_id)
@@ -218,7 +263,7 @@ impl Transaction {
             None
         };
 
-        Ok(Self {
+        Ok(Transaction {
             id: value.id,
             imported_id,
             amount,
@@ -230,43 +275,6 @@ impl Transaction {
                 .into(),
         })
     }
-
-    pub fn to_ynab(self) -> Result<NewYnabTransaction> {
-        let amount = i64::try_from(self.amount.amount.mantissa() * 10)
-            .wrap_err("failed to convert amount")?;
-
-        let mut transaction = NewYnabTransaction {
-            date: Some(self.time.to_rfc3339()),
-            amount: Some(amount),
-            memo: self.msg.clone().map(Some),
-            cleared: Some(TransactionClearedStatus::Cleared),
-            approved: Some(true),
-            account_id: None,
-            payee_id: None,
-            payee_name: None,
-            category_id: None,
-            flag_color: None,
-            import_id: Some(Some(self.id)),
-            subtransactions: None,
-        };
-
-        match &self.kind {
-            Kind::Expense { to, from_name } => {
-                transaction.account_id = Some(to.ynab_id);
-                transaction.payee_name = Some(Some(from_name.clone()));
-            }
-            Kind::Transfer { to, from } => {
-                transaction.account_id = Some(to.ynab_id);
-                transaction.payee_id = Some(Some(from.ynab_transfer_id));
-            }
-        }
-
-        Ok(transaction)
-    }
-
-    pub fn is_normalized(&self) -> bool {
-        self.is_expense() || (self.is_transfer() && self.amount.amount.is_sign_positive())
-    }
 }
 
 #[cfg(test)]
@@ -277,7 +285,10 @@ mod test {
     use uuid::Uuid;
 
     use super::*;
-    use crate::{model::Account, NewYnabTransaction, UpTransaction};
+    use crate::{
+        model::{Account, UpTransaction},
+        NewYnabTransaction,
+    };
 
     fn spending_account() -> Account {
         Account {
@@ -306,7 +317,7 @@ mod test {
         let payload = fs::read_to_string("test/data/up_expense.json")?;
         let up_transaction = serde_json::from_str::<UpTransaction>(&payload)?;
         let accounts = accounts();
-        let actual = Transaction::from_up(up_transaction, &accounts)?;
+        let actual = up_transaction.to_transaction(&accounts)?;
         let expected = Transaction {
             id: "5ce7c223-0188-4b68-8d19-227a7cc3464d".to_string(),
             imported_id: None,
@@ -328,7 +339,7 @@ mod test {
         let payload = fs::read_to_string("test/data/up_income.json")?;
         let up_transaction = serde_json::from_str::<UpTransaction>(&payload)?;
         let accounts = accounts();
-        let actual = Transaction::from_up(up_transaction, &accounts)?;
+        let actual = up_transaction.to_transaction(&accounts)?;
         let expected = Transaction {
             id: "9f08959d-51d2-43a8-a45a-154373870094".to_string(),
             imported_id: None,
@@ -350,7 +361,7 @@ mod test {
         let payload = fs::read_to_string("test/data/up_transfer.json")?;
         let up_transaction = serde_json::from_str::<UpTransaction>(&payload)?;
         let accounts = accounts();
-        let actual = Transaction::from_up(up_transaction, &accounts)?;
+        let actual = up_transaction.to_transaction(&accounts)?;
         let expected = Transaction {
             id: "f1b6981f-94d2-42b6-9cae-304dae08a480".to_string(),
             imported_id: None,
@@ -372,7 +383,7 @@ mod test {
         let payload = fs::read_to_string("test/data/up_transfer_invalid_account_id.json")?;
         let up_transaction = serde_json::from_str::<UpTransaction>(&payload)?;
         let accounts = accounts();
-        let transaction = Transaction::from_up(up_transaction, &accounts);
+        let transaction = up_transaction.to_transaction(&accounts);
         assert!(transaction.is_err());
 
         Ok(())
@@ -383,7 +394,7 @@ mod test {
         let payload = fs::read_to_string("test/data/up_transfer_invalid_transfer_account_id.json")?;
         let up_transaction = serde_json::from_str::<UpTransaction>(&payload)?;
         let accounts = accounts();
-        let transaction = Transaction::from_up(up_transaction, &accounts);
+        let transaction = up_transaction.to_transaction(&accounts);
         assert!(transaction.is_err());
 
         Ok(())
@@ -394,7 +405,7 @@ mod test {
         let payload = fs::read_to_string("test/data/up_round_up.json")?;
         let up_transaction = serde_json::from_str::<UpTransaction>(&payload)?;
         let accounts = accounts();
-        let actual = Transaction::from_up(up_transaction, &accounts)?;
+        let actual = up_transaction.to_transaction(&accounts)?;
         let expected = Transaction {
             id: "a0f9976c-d0ac-4cef-afd6-91bbc0033730".to_string(),
             imported_id: None,
@@ -416,7 +427,7 @@ mod test {
         let payload = fs::read_to_string("test/data/up_round_up_transfer.json")?;
         let up_transaction = serde_json::from_str::<UpTransaction>(&payload)?;
         let accounts = accounts();
-        let actual = Transaction::from_up(up_transaction, &accounts)?;
+        let actual = up_transaction.to_transaction(&accounts)?;
         let expected = Transaction {
             id: "66e3f7f3-e766-4095-adbb-19f3e1271646".to_string(),
             imported_id: None,

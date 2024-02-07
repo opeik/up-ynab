@@ -167,7 +167,7 @@ mod test {
     use uuid::Uuid;
 
     use super::*;
-    use crate::{model::Account, UpTransaction};
+    use crate::model::{Account, UpTransaction};
 
     fn spending_account() -> Account {
         Account {
@@ -199,7 +199,7 @@ mod test {
         let up_transactions = serde_json::from_str::<Vec<UpTransaction>>(&payload)?;
         let transactions = up_transactions
             .into_iter()
-            .map(|x| Transaction::from_up(x.clone(), accounts))
+            .map(|x| x.to_transaction(accounts))
             .collect::<Result<Vec<_>>>()?
             .into_iter()
             .filter(|x| x.is_normalized())

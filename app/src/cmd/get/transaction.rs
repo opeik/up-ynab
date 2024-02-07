@@ -5,7 +5,8 @@ use tracing::{error, info};
 use crate::{
     api::{up, ynab},
     frontend::{cli, Config},
-    Result, UpTransaction, YnabTransaction,
+    model::{UpTransaction, YnabTransaction},
+    Result,
 };
 
 pub type UpArgs = cli::get::transaction::up::Args;
@@ -24,6 +25,7 @@ pub async fn up(config: &Config, args: UpArgs) -> Result<Vec<UpTransaction>> {
         .await
         .into_iter()
         .flatten()
+        .map(UpTransaction)
         .collect::<Vec<_>>();
     Ok(transactions)
 }
@@ -41,6 +43,9 @@ pub async fn ynab(config: &Config, args: YnabArgs) -> Result<Vec<YnabTransaction
         .budget_id(budget_id)
         .since_date(args.since)
         .send()
-        .await?;
+        .await?
+        .into_iter()
+        .map(YnabTransaction)
+        .collect::<Vec<_>>();
     Ok(transactions)
 }

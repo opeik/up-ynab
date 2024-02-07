@@ -2,7 +2,7 @@ use tracing::info;
 
 use crate::{
     frontend::{cli, Config, Run},
-    model::{balance, Account, Transaction},
+    model::{balance, Account},
     Result,
 };
 
@@ -25,7 +25,7 @@ pub async fn up(config: &Config, args: UpArgs) -> Result<()> {
         .up_transactions
         .unwrap_or_default()
         .into_iter()
-        .map(|x| Transaction::from_up(x.clone(), &accounts))
+        .map(|x| x.to_transaction(&accounts))
         .collect::<Result<Vec<_>>>()?
         .into_iter()
         .filter(|x| x.is_normalized())

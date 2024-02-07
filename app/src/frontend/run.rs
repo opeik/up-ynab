@@ -10,8 +10,10 @@ use serde::{de::DeserializeOwned, Serialize};
 use tracing::{debug, error, info};
 
 use crate::{
-    cmd, frontend::config::Config, UpAccount, UpTransaction, YnabAccount, YnabBudget,
-    YnabTransaction,
+    cmd,
+    frontend::config::Config,
+    model::{UpTransaction, YnabTransaction},
+    UpAccount, YnabAccount, YnabBudget,
 };
 
 #[derive(Clone, Debug)]
@@ -111,7 +113,7 @@ impl Run {
     pub fn write_up_transactions(&self, transactions: &[UpTransaction]) -> Result<()> {
         let path = self.path.join("up_transactions");
         Self::write_entries::<UpTransaction, _, _>(&path, transactions, |x| {
-            PathBuf::from(&format!("{}-{}.json", x.attributes.created_at, x.id))
+            PathBuf::from(&format!("{}-{}.json", x.0.attributes.created_at, x.0.id))
         })?;
         debug!("wrote up transactions to {}", path.to_string_lossy());
         Ok(())
@@ -138,7 +140,7 @@ impl Run {
     pub fn write_ynab_transactions(&self, transactions: &[YnabTransaction]) -> Result<()> {
         let path = self.path.join("ynab_transactions");
         Self::write_entries::<YnabTransaction, _, _>(&path, transactions, |x| {
-            PathBuf::from(&format!("{}-{}.json", x.date, x.id))
+            PathBuf::from(&format!("{}-{}.json", x.0.date, x.0.id))
         })?;
         debug!("wrote ynab transactions to {}", path.to_string_lossy());
         Ok(())
