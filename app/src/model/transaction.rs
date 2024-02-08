@@ -1,8 +1,10 @@
 use std::str::FromStr;
 
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
+use chrono::{format::Fixed, DateTime, FixedOffset, NaiveDate, NaiveTime};
 use color_eyre::eyre::{Context, ContextCompat, Result};
 use money2::{Currency, Money};
+use pretty_assertions::Comparison;
+use tracing::{debug, info};
 use ynab_client::models::TransactionClearedStatus;
 
 use crate::{model::Account, YnabBudget};
@@ -35,7 +37,7 @@ pub enum Kind {
 pub struct Transaction {
     pub id: String,
     pub imported_id: Option<String>,
-    pub time: DateTime<FixedOffset>,
+    pub timestamp: DateTime<FixedOffset>,
     pub amount: Money,
     pub msg: Option<String>,
     pub kind: Kind,
@@ -94,12 +96,40 @@ impl Transaction {
     }
 
     pub fn is_equivalent(&self, other: &Self) -> bool {
-        (Some(self.id.as_str()) == other.imported_id.as_deref()
-            || self.imported_id.as_deref() == Some(other.id.as_str()))
-            && self.time.date_naive() == other.time.date_naive()
-            && self.amount == other.amount
-            && self.msg == other.msg
-            && self.kind == other.kind
+        #[derive(Debug, PartialEq, Eq)]
+        struct Inner<'a> {
+            id: &'a str,
+            date: NaiveDate,
+            amount: &'a Money,
+            msg: Option<&'a str>,
+            kind: &'a Kind,
+        }
+
+        if let Some(imported_id) = &other.imported_id {
+            let a = Inner {
+                id: &self.id,
+                date: self.timestamp.date_naive(),
+                amount: &self.amount,
+                msg: self.msg.as_deref(),
+                kind: &self.kind,
+            };
+
+            let b = Inner {
+                id: imported_id,
+                date: other.timestamp.date_naive(),
+                amount: &other.amount,
+                msg: other.msg.as_deref(),
+                kind: &other.kind,
+            };
+
+            if a != b {
+                debug!("transaction diff:\n{}", Comparison::new(&b, &a))
+            } else {
+                return true;
+            }
+        }
+
+        false
     }
 
     pub fn is_normalized(&self) -> bool {
@@ -183,7 +213,7 @@ impl UpTransaction {
             amount,
             msg,
             kind,
-            time: DateTime::parse_from_rfc3339(&value.attributes.created_at)?,
+            timestamp: DateTime::parse_from_rfc3339(&value.attributes.created_at)?,
         })
     }
 }
@@ -256,7 +286,7 @@ impl YnabTransaction {
             amount,
             msg,
             kind,
-            time: NaiveDate::parse_from_str(&value.date, "%Y-%m-%d")?
+            timestamp: NaiveDate::parse_from_str(&value.date, "%Y-%m-%d")?
                 .and_time(NaiveTime::MIN)
                 .and_utc()
                 .into(),
@@ -272,7 +302,7 @@ impl TryFrom<Transaction> for NewYnabTransaction {
             .wrap_err("failed to convert amount")?;
 
         let mut transaction = ynab_client::models::SaveTransaction {
-            date: Some(value.time.to_rfc3339()),
+            date: Some(to_date_str(&value.timestamp)),
             amount: Some(amount),
             memo: value.msg.clone().map(Some),
             cleared: Some(TransactionClearedStatus::Cleared),
@@ -310,7 +340,7 @@ impl TryFrom<Transaction> for UpdateYnabTransaction {
 
         let mut transaction = ynab_client::models::SaveTransactionWithId {
             id: Some(value.id.clone()),
-            date: Some(value.time.to_rfc3339()),
+            date: Some(to_date_str(&value.timestamp)),
             amount: Some(amount),
             memo: value.msg.clone().map(Some),
             cleared: None,
@@ -337,6 +367,10 @@ impl TryFrom<Transaction> for UpdateYnabTransaction {
 
         Ok(UpdateYnabTransaction(transaction))
     }
+}
+
+fn to_date_str(timestamp: &DateTime<FixedOffset>) -> String {
+    timestamp.format("%Y-%m-%d").to_string()
 }
 
 #[cfg(test)]
@@ -380,7 +414,7 @@ mod test {
         let expected = Transaction {
             id: "5ce7c223-0188-4b68-8d19-227a7cc3464d".to_string(),
             imported_id: None,
-            time: DateTime::parse_from_rfc3339("2023-12-02T13:44:15+11:00")?,
+            timestamp: DateTime::parse_from_rfc3339("2023-12-02T13:44:15+11:00")?,
             amount: Money::new(-57_84, 2, Currency::Aud),
             kind: Kind::External {
                 to: spending_account(),
@@ -402,7 +436,7 @@ mod test {
         let expected = Transaction {
             id: "9f08959d-51d2-43a8-a45a-154373870094".to_string(),
             imported_id: None,
-            time: DateTime::parse_from_rfc3339("2023-12-27T05:08:06+11:00")?,
+            timestamp: DateTime::parse_from_rfc3339("2023-12-27T05:08:06+11:00")?,
             amount: Money::new(10_95, 2, Currency::Aud),
             kind: Kind::External {
                 to: spending_account(),
@@ -424,7 +458,7 @@ mod test {
         let expected = Transaction {
             id: "f1b6981f-94d2-42b6-9cae-304dae08a480".to_string(),
             imported_id: None,
-            time: DateTime::parse_from_rfc3339("2023-12-07T22:35:56+11:00")?,
+            timestamp: DateTime::parse_from_rfc3339("2023-12-07T22:35:56+11:00")?,
             amount: Money::new(37_94, 2, Currency::Aud),
             kind: Kind::Internal {
                 to: spending_account(),
@@ -468,7 +502,7 @@ mod test {
         let expected = Transaction {
             id: "a0f9976c-d0ac-4cef-afd6-91bbc0033730".to_string(),
             imported_id: None,
-            time: DateTime::parse_from_rfc3339("2023-12-28T22:49:40+11:00")?,
+            timestamp: DateTime::parse_from_rfc3339("2023-12-28T22:49:40+11:00")?,
             amount: Money::new(-12_99, 2, Currency::Aud),
             kind: Kind::External {
                 to: spending_account(),
@@ -490,7 +524,7 @@ mod test {
         let expected = Transaction {
             id: "66e3f7f3-e766-4095-adbb-19f3e1271646".to_string(),
             imported_id: None,
-            time: DateTime::parse_from_rfc3339("2023-08-03T13:07:33+10:00")?,
+            timestamp: DateTime::parse_from_rfc3339("2023-08-03T13:07:33+10:00")?,
             amount: Money::new(1_00, 2, Currency::Aud),
             kind: Kind::Internal {
                 to: home_account(),
@@ -507,7 +541,7 @@ mod test {
     fn to_ynab_expense() -> Result<()> {
         let expected = NewYnabTransaction(NewYnabTransactionInner {
             account_id: Some(spending_account().ynab_id),
-            date: Some("2023-12-02T13:44:15+11:00".to_string()),
+            date: Some("2023-12-02".to_string()),
             amount: Some(-57_840),
             payee_name: Some(Some("7-Eleven".to_string())),
             cleared: Some(TransactionClearedStatus::Cleared),
@@ -523,7 +557,7 @@ mod test {
         let actual = NewYnabTransaction::try_from(Transaction {
             id: "hi".to_string(),
             imported_id: None,
-            time: DateTime::parse_from_rfc3339("2023-12-02T13:44:15+11:00")?,
+            timestamp: DateTime::parse_from_rfc3339("2023-12-02T13:44:15+11:00")?,
             amount: Money::new(-57_84, 2, Currency::Aud),
             kind: Kind::External {
                 to: spending_account(),
@@ -540,7 +574,7 @@ mod test {
     fn to_ynab_transfer() -> Result<()> {
         let expected = NewYnabTransaction(NewYnabTransactionInner {
             account_id: Some(spending_account().ynab_id),
-            date: Some("2023-12-07T22:35:56+11:00".to_string()),
+            date: Some("2023-12-07".to_string()),
             amount: Some(37_940),
             payee_id: Some(Some(home_account().ynab_transfer_id)),
             cleared: Some(TransactionClearedStatus::Cleared),
@@ -556,7 +590,7 @@ mod test {
         let actual = NewYnabTransaction::try_from(Transaction {
             id: "hi".to_string(),
             imported_id: None,
-            time: DateTime::parse_from_rfc3339("2023-12-07T22:35:56+11:00")?,
+            timestamp: DateTime::parse_from_rfc3339("2023-12-07T22:35:56+11:00")?,
             amount: Money::new(37_94, 2, Currency::Aud),
             kind: Kind::Internal {
                 to: spending_account(),

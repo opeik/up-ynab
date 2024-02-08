@@ -29,8 +29,6 @@ tracing-error = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = { version = "2.5", features = ["serde"] }
 uuid = "1.6"
+pretty_assertions = "1.0"
 # derive_more = { version = "=1.0.0-beta.6", features = ["full"] }
 # nutype = { version = "0.4", features = ["serde", "regex"] }
-
-[dev-dependencies]
-pretty_assertions = "1.0"

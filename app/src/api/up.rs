@@ -80,7 +80,7 @@ macro_rules! stream_pages_impl {
             &self,
             args: $A,
         ) -> Pin<Box<impl Stream<Item = color_eyre::eyre::Result<$T>> + '_>> {
-            use tracing::debug;
+            use tracing::trace;
 
             struct State {
                 data: <Vec<$T> as IntoIterator>::IntoIter,
@@ -103,7 +103,7 @@ macro_rules! stream_pages_impl {
                     return Ok(None);
                 }
 
-                debug!("fetching page {}...", state.count);
+                trace!("fetching page {}...", state.count);
                 let response = self
                     .$page_fn(state.next.as_deref(), state.args.clone())
                     .await?;

@@ -1,6 +1,7 @@
 use chrono::{DateTime, FixedOffset};
 use color_eyre::eyre::{eyre, Context, Result};
 use itertools::Itertools;
+use tracing::trace;
 use ynab_client::{
     apis::{accounts_api, budgets_api, configuration::Configuration, transactions_api},
     models,
@@ -231,6 +232,7 @@ impl<'a> NewTransactionsParamsBuilder<'a> {
 impl<'a> UpdateTransactionsParamsBuilder<'a> {
     pub async fn send(self) -> Result<models::SaveTransactionsResponseData> {
         let params = self.build().wrap_err("failed to build parameters")?;
+        trace!("{:?}", params.transactions);
         let num_transactions = params.transactions.len();
         let response =
             *transactions_api::update_transactions(&params.client.config, params.into_api())

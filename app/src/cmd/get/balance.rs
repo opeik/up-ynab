@@ -34,13 +34,13 @@ pub async fn up(config: &Config, args: UpArgs) -> Result<()> {
     let balances = balance::running_balance(&transactions);
     for balance in &balances {
         if let Some(since) = args.since
-            && balance.transaction.time <= since
+            && balance.transaction.timestamp <= since
         {
             continue;
         }
 
         if let Some(until) = args.until
-            && balance.transaction.time >= until
+            && balance.transaction.timestamp >= until
         {
             continue;
         }

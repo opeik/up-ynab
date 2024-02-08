@@ -17,7 +17,7 @@ pub fn running_balance(transactions: &[Transaction]) -> Vec<Balance> {
     let mut balances = Vec::<Balance>::new();
     let transactions = transactions
         .iter()
-        .sorted_by(|a: &&Transaction, b| Ord::cmp(&a.time, &b.time));
+        .sorted_by(|a: &&Transaction, b| Ord::cmp(&a.timestamp, &b.timestamp));
 
     for transaction in transactions {
         let last_balance = balances.last().cloned().unwrap_or(Balance {
@@ -73,7 +73,7 @@ pub fn write_balance_csv<P: AsRef<Path>>(balances: &[Balance], path: P) -> Resul
     wtr.write_record(headers)?;
 
     for balance in balances {
-        let time = Some(balance.transaction.time.to_rfc3339());
+        let time = Some(balance.transaction.timestamp.to_rfc3339());
         let id = Some(balance.transaction.id.clone());
         let amount = Some(balance.transaction.amount.to_string());
         let msg = balance.transaction.msg.clone();
@@ -127,7 +127,7 @@ impl<'a> fmt::Display for Balance<'a> {
             transaction::Kind::Internal { to: _, from: _ } => "transfer",
         };
 
-        let time = self.transaction.time.to_rfc3339();
+        let time = self.transaction.timestamp.to_rfc3339();
         let amount = self.transaction.amount;
         let to = self.transaction.to_name();
         let from = self.transaction.from_name();

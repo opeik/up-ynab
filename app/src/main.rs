@@ -69,7 +69,7 @@ fn install_tracing() {
 
     let fmt_layer = fmt::layer();
     let filter_layer = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new("up_ynab=debug"))
+        .or_else(|_| EnvFilter::try_new("up_ynab=trace"))
         .unwrap();
 
     tracing_subscriber::registry()
