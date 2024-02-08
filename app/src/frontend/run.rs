@@ -12,8 +12,8 @@ use tracing::{debug, error, info};
 use crate::{
     cmd,
     frontend::config::Config,
-    model::{UpTransaction, YnabTransaction},
-    UpAccount, YnabAccount, YnabBudget,
+    model::{UpAccount, UpTransaction, YnabAccount, YnabTransaction},
+    YnabBudget,
 };
 
 #[derive(Clone, Debug)]
@@ -122,7 +122,7 @@ impl Run {
     pub fn write_up_accounts(&self, accounts: &[UpAccount]) -> Result<()> {
         let path = self.path.join("up_accounts");
         Self::write_entries::<UpAccount, _, _>(&path, accounts, |x| {
-            PathBuf::from(&format!("{}.json", x.id))
+            PathBuf::from(&format!("{}.json", x.0.id))
         })?;
         debug!("wrote up accounts to {}", path.to_string_lossy());
         Ok(())
@@ -131,7 +131,7 @@ impl Run {
     pub fn write_ynab_accounts(&self, accounts: &[YnabAccount]) -> Result<()> {
         let path = self.path.join("ynab_accounts");
         Self::write_entries::<YnabAccount, _, _>(&path, accounts, |x| {
-            PathBuf::from(&format!("{}.json", x.id))
+            PathBuf::from(&format!("{}.json", x.0.id))
         })?;
         debug!("wrote ynab accounts to {}", path.to_string_lossy());
         Ok(())

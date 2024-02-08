@@ -24,9 +24,7 @@ pub async fn up(config: &Config, args: UpArgs) -> Result<Vec<UpTransaction>> {
         .collect::<Vec<_>>()
         .await
         .into_iter()
-        .flatten()
-        .map(UpTransaction)
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>>>()?;
     Ok(transactions)
 }
 
@@ -43,9 +41,6 @@ pub async fn ynab(config: &Config, args: YnabArgs) -> Result<Vec<YnabTransaction
         .budget_id(budget_id)
         .since_date(args.since)
         .send()
-        .await?
-        .into_iter()
-        .map(YnabTransaction)
-        .collect::<Vec<_>>();
+        .await?;
     Ok(transactions)
 }

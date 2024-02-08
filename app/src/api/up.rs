@@ -1,17 +1,22 @@
 use std::pin::Pin;
 
+use accounts_api::AccountsGetParams;
 use chrono::{DateTime, FixedOffset};
 use color_eyre::eyre::Context;
 use futures::{
     stream::{self},
     Stream,
 };
+use transactions_api::TransactionsGetParams;
 use up_client::{
-    apis::{accounts_api, configuration::Configuration, transactions_api, util, Error},
+    apis::{accounts_api, configuration::Configuration, transactions_api, util},
     models,
 };
 
-use crate::Result;
+use crate::{
+    model::{UpAccount, UpTransaction},
+    Result,
+};
 
 #[derive(Debug, Clone)]
 pub struct Client {
@@ -70,8 +75,11 @@ pub struct GetAccountsParams<'a> {
 }
 
 macro_rules! stream_pages_impl {
-    ($name:ident, $page_fn:ident, $A:ty, $T:ty, $E:ty) => {
-        fn $name(&self, args: $A) -> Pin<Box<impl Stream<Item = Result<$T, Error<$E>>> + '_>> {
+    ($name:ident, $page_fn:ident, $T:ident, $A:ty) => {
+        fn $name(
+            &self,
+            args: $A,
+        ) -> Pin<Box<impl Stream<Item = color_eyre::eyre::Result<$T>> + '_>> {
             use tracing::debug;
 
             struct State {
@@ -99,7 +107,12 @@ macro_rules! stream_pages_impl {
                 let response = self
                     .$page_fn(state.next.as_deref(), state.args.clone())
                     .await?;
-                state.data = response.data.into_iter();
+                state.data = response
+                    .data
+                    .into_iter()
+                    .map(|x| $T(x))
+                    .collect::<Vec<_>>()
+                    .into_iter();
                 state.next = response.links.next;
                 state.count += 1;
                 Ok(state.data.next().map(|x| (x, state)))
@@ -133,18 +146,15 @@ impl<'a> GetTransactionsParams<'a> {
     }
 }
 
-type TransactionsResult =
-    Result<models::TransactionResource, Error<transactions_api::TransactionsGetError>>;
 impl<'a> GetTransactionsParamsBuilder<'a> {
-    pub fn send(self) -> Result<Pin<Box<impl Stream<Item = TransactionsResult> + 'a>>> {
+    pub fn send(self) -> Result<Pin<Box<impl Stream<Item = Result<UpTransaction>> + 'a>>> {
         let params = self.build().wrap_err("failed to build parameters")?;
         Ok(params.client.transactions_send(params.into_api()))
     }
 }
 
-type AccountsResult = Result<models::AccountResource, Error<accounts_api::AccountsGetError>>;
 impl<'a> GetAccountsParamsBuilder<'a> {
-    pub fn send(self) -> Result<Pin<Box<impl Stream<Item = AccountsResult> + 'a>>> {
+    pub fn send(self) -> Result<Pin<Box<impl Stream<Item = Result<UpAccount>> + 'a>>> {
         let params = self.build().wrap_err("failed to build parameters")?;
         Ok(params.client.accounts_send(params.into_api()))
     }
@@ -186,25 +196,17 @@ impl Client {
     stream_pages_impl!(
         transactions_send,
         transactions_page,
-        transactions_api::TransactionsGetParams,
-        models::TransactionResource,
-        transactions_api::TransactionsGetError
+        UpTransaction,
+        TransactionsGetParams
     );
 
-    stream_pages_impl!(
-        accounts_send,
-        accounts_page,
-        accounts_api::AccountsGetParams,
-        models::AccountResource,
-        accounts_api::AccountsGetError
-    );
+    stream_pages_impl!(accounts_send, accounts_page, UpAccount, AccountsGetParams);
 
     async fn transactions_page(
         &self,
         page: Option<&str>,
         params: transactions_api::TransactionsGetParams,
-    ) -> Result<models::ListTransactionsResponse, Error<transactions_api::TransactionsGetError>>
-    {
+    ) -> Result<models::ListTransactionsResponse> {
         if let Some(page) = page {
             util::get_page::<
                 models::ListTransactionsResponse,
@@ -214,13 +216,14 @@ impl Client {
         } else {
             transactions_api::transactions_get(&self.config, params).await
         }
+        .wrap_err("failed to get up transactions page")
     }
 
     async fn accounts_page(
         &self,
         page: Option<&str>,
         params: accounts_api::AccountsGetParams,
-    ) -> Result<models::ListAccountsResponse, Error<accounts_api::AccountsGetError>> {
+    ) -> Result<models::ListAccountsResponse> {
         if let Some(page) = page {
             util::get_page::<models::ListAccountsResponse, accounts_api::AccountsGetError>(
                 &self.config,
@@ -230,5 +233,6 @@ impl Client {
         } else {
             accounts_api::accounts_get(&self.config, params).await
         }
+        .wrap_err("failed to get up accounts page")
     }
 }

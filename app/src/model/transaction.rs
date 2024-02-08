@@ -7,10 +7,10 @@ use ynab_client::models::TransactionClearedStatus;
 
 use crate::{model::Account, YnabBudget};
 
-type UpTransactionInner = up_client::models::TransactionResource;
-type YnabTransactionInner = ynab_client::models::TransactionDetail;
-type NewYnabTransactionInner = ynab_client::models::SaveTransaction;
-type UpdateYnabTransactionInner = ynab_client::models::SaveTransactionWithId;
+pub type UpTransactionInner = up_client::models::TransactionResource;
+pub type YnabTransactionInner = ynab_client::models::TransactionDetail;
+pub type NewYnabTransactionInner = ynab_client::models::SaveTransaction;
+pub type UpdateYnabTransactionInner = ynab_client::models::SaveTransactionWithId;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct UpTransaction(pub UpTransactionInner);

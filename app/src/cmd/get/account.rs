@@ -1,11 +1,12 @@
 use color_eyre::eyre::ContextCompat;
-use futures::{StreamExt, TryStreamExt};
-use tracing::{error, info};
+use futures::StreamExt;
+use tracing::info;
 
 use crate::{
     api::{up, ynab},
     frontend::config::Config,
-    Result, UpAccount, YnabAccount,
+    model::{UpAccount, YnabAccount},
+    Result,
 };
 
 pub async fn up(config: &Config) -> Result<Vec<UpAccount>> {
@@ -14,12 +15,10 @@ pub async fn up(config: &Config) -> Result<Vec<UpAccount>> {
     let accounts = up_client
         .accounts()
         .send()?
-        .inspect_err(|e| error!("failed to fetch transaction: {e}"))
         .collect::<Vec<_>>()
         .await
         .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>>>()?;
     Ok(accounts)
 }
 

@@ -6,7 +6,10 @@ use ynab_client::{
     models,
 };
 
-use crate::model::transaction::{NewYnabTransaction, UpdateYnabTransaction};
+use crate::model::{
+    transaction::{NewYnabTransaction, UpdateYnabTransaction},
+    YnabAccount, YnabTransaction,
+};
 
 #[derive(Debug, Clone)]
 pub struct Client {
@@ -148,14 +151,17 @@ impl<'a> UpdateTransactionsParams<'a> {
 }
 
 impl<'a> GetAccountsParamsBuilder<'a> {
-    pub async fn send(self) -> Result<Vec<models::Account>> {
+    pub async fn send(self) -> Result<Vec<YnabAccount>> {
         let params = self.build().wrap_err("failed to build parameters")?;
         Ok(
             accounts_api::get_accounts(&params.client.config, params.into_api())
                 .await
                 .wrap_err("failed to get accounts")?
                 .data
-                .accounts,
+                .accounts
+                .into_iter()
+                .map(YnabAccount)
+                .collect::<Vec<_>>(),
         )
     }
 }
@@ -174,14 +180,17 @@ impl<'a> GetBudgetsParamsBuilder<'a> {
 }
 
 impl<'a> GetTransactionsParamsBuilder<'a> {
-    pub async fn send(self) -> Result<Vec<models::TransactionDetail>> {
+    pub async fn send(self) -> Result<Vec<YnabTransaction>> {
         let params = self.build().wrap_err("failed to build parameters")?;
         Ok(
             transactions_api::get_transactions(&params.client.config, params.into_api())
                 .await
                 .wrap_err("failed to get transactions")?
                 .data
-                .transactions,
+                .transactions
+                .into_iter()
+                .map(YnabTransaction)
+                .collect::<Vec<_>>(),
         )
     }
 }
