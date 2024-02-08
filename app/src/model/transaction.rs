@@ -5,13 +5,24 @@ use color_eyre::eyre::{Context, ContextCompat, Result};
 use money2::{Currency, Money};
 use ynab_client::models::TransactionClearedStatus;
 
-use crate::{model::Account, NewYnabTransaction, UpdateYnabTransaction, YnabBudget};
+use crate::{model::Account, YnabBudget};
+
+type UpTransactionInner = up_client::models::TransactionResource;
+type YnabTransactionInner = ynab_client::models::TransactionDetail;
+type NewYnabTransactionInner = ynab_client::models::SaveTransaction;
+type UpdateYnabTransactionInner = ynab_client::models::SaveTransactionWithId;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UpTransaction(pub up_client::models::TransactionResource);
+pub struct UpTransaction(pub UpTransactionInner);
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct YnabTransaction(pub ynab_client::models::TransactionDetail);
+pub struct YnabTransaction(pub YnabTransactionInner);
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NewYnabTransaction(pub NewYnabTransactionInner);
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UpdateYnabTransaction(pub UpdateYnabTransactionInner);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
@@ -19,6 +30,7 @@ pub enum Kind {
     Internal { to: Account, from: Account },
 }
 
+// TODO: add category support
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Transaction {
     pub id: String,
@@ -90,82 +102,22 @@ impl Transaction {
             && self.kind == other.kind
     }
 
-    pub fn to_new_ynab(self) -> Result<NewYnabTransaction> {
-        let amount = i64::try_from(self.amount.amount.mantissa() * 10)
-            .wrap_err("failed to convert amount")?;
-
-        let mut transaction = NewYnabTransaction {
-            date: Some(self.time.to_rfc3339()),
-            amount: Some(amount),
-            memo: self.msg.clone().map(Some),
-            cleared: Some(TransactionClearedStatus::Cleared),
-            approved: Some(true),
-            account_id: None,
-            payee_id: None,
-            payee_name: None,
-            category_id: None,
-            flag_color: None,
-            import_id: Some(Some(self.id)),
-            subtransactions: None,
-        };
-
-        match &self.kind {
-            Kind::External { to, from_name } => {
-                transaction.account_id = Some(to.ynab_id);
-                transaction.payee_name = Some(Some(from_name.clone()));
-            }
-            Kind::Internal { to, from } => {
-                transaction.account_id = Some(to.ynab_id);
-                transaction.payee_id = Some(Some(from.ynab_transfer_id));
-            }
-        }
-
-        Ok(transaction)
-    }
-
-    // TODO: reduce duplication
-    pub fn to_update_ynab(self) -> Result<UpdateYnabTransaction> {
-        let amount = i64::try_from(self.amount.amount.mantissa() * 10)
-            .wrap_err("failed to convert amount")?;
-
-        let mut transaction = UpdateYnabTransaction {
-            id: Some(self.id.clone()),
-            date: Some(self.time.to_rfc3339()),
-            amount: Some(amount),
-            memo: self.msg.clone().map(Some),
-            cleared: None,
-            approved: None,
-            account_id: None,
-            payee_id: None,
-            payee_name: None,
-            category_id: None,
-            flag_color: None,
-            import_id: None,
-            subtransactions: None,
-        };
-
-        match &self.kind {
-            Kind::External { to, from_name } => {
-                transaction.account_id = Some(to.ynab_id);
-                transaction.payee_name = Some(Some(from_name.clone()));
-            }
-            Kind::Internal { to, from } => {
-                transaction.account_id = Some(to.ynab_id);
-                transaction.payee_id = Some(Some(from.ynab_transfer_id));
-            }
-        }
-
-        Ok(transaction)
-    }
-
     pub fn is_normalized(&self) -> bool {
         self.is_external() || (self.is_internal() && self.amount.amount.is_sign_positive())
+    }
+
+    pub fn to_new_ynab(&self) -> Result<NewYnabTransaction> {
+        NewYnabTransaction::try_from(self.clone())
+    }
+
+    pub fn to_update_ynab(&self) -> Result<UpdateYnabTransaction> {
+        UpdateYnabTransaction::try_from(self.clone())
     }
 }
 
 impl UpTransaction {
-    pub fn to_transaction(self, accounts: &[Account]) -> Result<Transaction> {
-        let value = self.0;
+    pub fn to_transaction(&self, accounts: &[Account]) -> Result<Transaction> {
+        let value = &self.0;
         let to_id =
             Some(value.relationships.account.data.id.as_str()).wrap_err("missing `to` account")?;
         let from_id = value
@@ -205,8 +157,8 @@ impl UpTransaction {
             Kind::External {
                 to: _,
                 from_name: _,
-            } => value.attributes.message,
-            Kind::Internal { to: _, from: _ } => Some(value.attributes.description),
+            } => value.attributes.message.clone(),
+            Kind::Internal { to: _, from: _ } => Some(value.attributes.description.clone()),
         };
 
         let mut amount = Money::new(
@@ -215,7 +167,7 @@ impl UpTransaction {
             Currency::from_str(&value.attributes.amount.currency_code)?,
         );
 
-        if let Some(cashback) = value.attributes.cashback {
+        if let Some(cashback) = value.attributes.cashback.clone() {
             amount = amount
                 .checked_add(Money::new(
                     i64::from(cashback.amount.value_in_base_units),
@@ -226,7 +178,7 @@ impl UpTransaction {
         };
 
         Ok(Transaction {
-            id: value.id,
+            id: value.id.clone(),
             imported_id: None,
             amount,
             msg,
@@ -237,8 +189,8 @@ impl UpTransaction {
 }
 
 impl YnabTransaction {
-    pub fn to_transaction(self, budget: &YnabBudget, accounts: &[Account]) -> Result<Transaction> {
-        let value = self.0;
+    pub fn to_transaction(&self, budget: &YnabBudget, accounts: &[Account]) -> Result<Transaction> {
+        let value = &self.0;
         let to = accounts
             .iter()
             .find(|account| account.ynab_id == value.account_id)
@@ -273,8 +225,8 @@ impl YnabTransaction {
             Kind::External {
                 to: _,
                 from_name: _,
-            } => value.memo,
-            Kind::Internal { to: _, from: _ } => value.memo,
+            } => value.memo.clone(),
+            Kind::Internal { to: _, from: _ } => value.memo.clone(),
         }
         .wrap_err("missing memo")?;
 
@@ -292,14 +244,14 @@ impl YnabTransaction {
             )?,
         );
 
-        let imported_id = if let Some(Some(imported_id)) = value.import_id {
+        let imported_id = if let Some(Some(imported_id)) = value.import_id.clone() {
             Some(imported_id)
         } else {
             None
         };
 
         Ok(Transaction {
-            id: value.id,
+            id: value.id.clone(),
             imported_id,
             amount,
             msg,
@@ -312,6 +264,81 @@ impl YnabTransaction {
     }
 }
 
+impl TryFrom<Transaction> for NewYnabTransaction {
+    type Error = color_eyre::eyre::Error;
+
+    fn try_from(value: Transaction) -> Result<Self, Self::Error> {
+        let amount = i64::try_from(value.amount.amount.mantissa() * 10)
+            .wrap_err("failed to convert amount")?;
+
+        let mut transaction = ynab_client::models::SaveTransaction {
+            date: Some(value.time.to_rfc3339()),
+            amount: Some(amount),
+            memo: value.msg.clone().map(Some),
+            cleared: Some(TransactionClearedStatus::Cleared),
+            approved: Some(true),
+            account_id: None,
+            payee_id: None,
+            payee_name: None,
+            category_id: None,
+            flag_color: None,
+            import_id: Some(Some(value.id.clone())),
+            subtransactions: None,
+        };
+
+        match &value.kind {
+            Kind::External { to, from_name } => {
+                transaction.account_id = Some(to.ynab_id);
+                transaction.payee_name = Some(Some(from_name.clone()));
+            }
+            Kind::Internal { to, from } => {
+                transaction.account_id = Some(to.ynab_id);
+                transaction.payee_id = Some(Some(from.ynab_transfer_id));
+            }
+        }
+
+        Ok(NewYnabTransaction(transaction))
+    }
+}
+
+impl TryFrom<Transaction> for UpdateYnabTransaction {
+    type Error = color_eyre::eyre::Error;
+
+    fn try_from(value: Transaction) -> Result<Self, Self::Error> {
+        let amount = i64::try_from(value.amount.amount.mantissa() * 10)
+            .wrap_err("failed to convert amount")?;
+
+        let mut transaction = ynab_client::models::SaveTransactionWithId {
+            id: Some(value.id.clone()),
+            date: Some(value.time.to_rfc3339()),
+            amount: Some(amount),
+            memo: value.msg.clone().map(Some),
+            cleared: None,
+            approved: None,
+            account_id: None,
+            payee_id: None,
+            payee_name: None,
+            category_id: None,
+            flag_color: None,
+            import_id: None,
+            subtransactions: None,
+        };
+
+        match &value.kind {
+            Kind::External { to, from_name } => {
+                transaction.account_id = Some(to.ynab_id);
+                transaction.payee_name = Some(Some(from_name.clone()));
+            }
+            Kind::Internal { to, from } => {
+                transaction.account_id = Some(to.ynab_id);
+                transaction.payee_id = Some(Some(from.ynab_transfer_id));
+            }
+        }
+
+        Ok(UpdateYnabTransaction(transaction))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::fs;
@@ -320,10 +347,7 @@ mod test {
     use uuid::Uuid;
 
     use super::*;
-    use crate::{
-        model::{Account, UpTransaction},
-        NewYnabTransaction,
-    };
+    use crate::model::{Account, UpTransaction};
 
     fn spending_account() -> Account {
         Account {
@@ -481,7 +505,7 @@ mod test {
 
     #[test]
     fn to_ynab_expense() -> Result<()> {
-        let expected = NewYnabTransaction {
+        let expected = NewYnabTransaction(NewYnabTransactionInner {
             account_id: Some(spending_account().ynab_id),
             date: Some("2023-12-02T13:44:15+11:00".to_string()),
             amount: Some(-57_840),
@@ -494,9 +518,9 @@ mod test {
             flag_color: None,
             import_id: Some(Some("hi".to_string())),
             subtransactions: None,
-        };
+        });
 
-        let actual = Transaction {
+        let actual = NewYnabTransaction::try_from(Transaction {
             id: "hi".to_string(),
             imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-02T13:44:15+11:00")?,
@@ -506,8 +530,7 @@ mod test {
                 from_name: "7-Eleven".to_string(),
             },
             msg: None,
-        }
-        .to_new_ynab()?;
+        })?;
 
         assert_eq!(expected, actual);
         Ok(())
@@ -515,7 +538,7 @@ mod test {
 
     #[test]
     fn to_ynab_transfer() -> Result<()> {
-        let expected = NewYnabTransaction {
+        let expected = NewYnabTransaction(NewYnabTransactionInner {
             account_id: Some(spending_account().ynab_id),
             date: Some("2023-12-07T22:35:56+11:00".to_string()),
             amount: Some(37_940),
@@ -528,9 +551,9 @@ mod test {
             flag_color: None,
             import_id: Some(Some("hi".to_string())),
             subtransactions: None,
-        };
+        });
 
-        let actual = Transaction {
+        let actual = NewYnabTransaction::try_from(Transaction {
             id: "hi".to_string(),
             imported_id: None,
             time: DateTime::parse_from_rfc3339("2023-12-07T22:35:56+11:00")?,
@@ -540,8 +563,7 @@ mod test {
                 from: home_account(),
             },
             msg: Some("Transfer from Home".to_string()),
-        }
-        .to_new_ynab()?;
+        })?;
 
         assert_eq!(expected, actual);
         Ok(())

@@ -162,6 +162,7 @@ impl<'a> fmt::Display for Balance<'a> {
 mod test {
     use std::{fs, str::FromStr};
 
+    use fallible_iterator::{FallibleIterator, IteratorExt};
     use money2::Currency;
     use pretty_assertions::assert_eq;
     use uuid::Uuid;
@@ -200,10 +201,9 @@ mod test {
         let transactions = up_transactions
             .into_iter()
             .map(|x| x.to_transaction(accounts))
-            .collect::<Result<Vec<_>>>()?
-            .into_iter()
-            .filter(|x| x.is_normalized())
-            .collect::<Vec<_>>();
+            .transpose_into_fallible()
+            .filter(|x| Ok(x.is_normalized()))
+            .collect::<Vec<_>>()?;
         Ok(transactions)
     }
 

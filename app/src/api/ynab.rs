@@ -1,9 +1,12 @@
 use chrono::{DateTime, FixedOffset};
-use color_eyre::eyre::{Context, Result};
+use color_eyre::eyre::{eyre, Context, Result};
+use itertools::Itertools;
 use ynab_client::{
     apis::{accounts_api, budgets_api, configuration::Configuration, transactions_api},
     models,
 };
+
+use crate::model::transaction::{NewYnabTransaction, UpdateYnabTransaction};
 
 #[derive(Debug, Clone)]
 pub struct Client {
@@ -68,7 +71,7 @@ pub struct NewTransactionsParams<'a> {
     /// `default` can be used if default budget selection is enabled (see: https://api.ynab.com/#oauth-default-budget).
     pub budget_id: String,
     /// The transactions to create.
-    pub transactions: Vec<models::SaveTransaction>,
+    pub transactions: Vec<NewYnabTransaction>,
 }
 
 #[derive(Debug, Clone, derive_builder::Builder)]
@@ -81,7 +84,7 @@ pub struct UpdateTransactionsParams<'a> {
     /// `default` can be used if default budget selection is enabled (see: https://api.ynab.com/#oauth-default-budget).
     pub budget_id: String,
     /// The transactions to update.
-    pub transactions: Vec<models::SaveTransactionWithId>,
+    pub transactions: Vec<UpdateYnabTransaction>,
 }
 
 impl<'a> GetAccountsParams<'a> {
@@ -118,7 +121,12 @@ impl<'a> NewTransactionsParams<'a> {
             budget_id: self.budget_id,
             data: models::PostTransactionsWrapper {
                 transaction: None,
-                transactions: Some(self.transactions),
+                transactions: Some(
+                    self.transactions
+                        .into_iter()
+                        .map(|x| x.0)
+                        .collect::<Vec<_>>(),
+                ),
             },
         }
     }
@@ -128,8 +136,12 @@ impl<'a> UpdateTransactionsParams<'a> {
     fn into_api(self) -> transactions_api::UpdateTransactionsParams {
         transactions_api::UpdateTransactionsParams {
             budget_id: self.budget_id,
-            data: ynab_client::models::PatchTransactionsWrapper {
-                transactions: self.transactions,
+            data: models::PatchTransactionsWrapper {
+                transactions: self
+                    .transactions
+                    .into_iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<_>>(),
             },
         }
     }
@@ -177,24 +189,60 @@ impl<'a> GetTransactionsParamsBuilder<'a> {
 impl<'a> NewTransactionsParamsBuilder<'a> {
     pub async fn send(self) -> Result<models::SaveTransactionsResponseData> {
         let params = self.build().wrap_err("failed to build parameters")?;
-        Ok(
+        let num_transactions = params.transactions.len();
+        let response =
             *transactions_api::create_transaction(&params.client.config, params.into_api())
                 .await
                 .wrap_err("failed to create transactions")?
-                .data,
-        )
+                .data;
+
+        if num_transactions != response.transaction_ids.len() {
+            return Err(eyre!(
+                "failed to create {} transactions",
+                num_transactions - response.transaction_ids.len()
+            ));
+        }
+
+        if let Some(duplicate_import_ids) = &response.duplicate_import_ids
+            && !duplicate_import_ids.is_empty()
+        {
+            return Err(eyre!(
+                "attempted to create transactions with duplicate ids: {}",
+                duplicate_import_ids
+                    .iter()
+                    .map(|x| format!("`{x}`"))
+                    .join(", ")
+            ));
+        }
+
+        Ok(response)
     }
 }
 
 impl<'a> UpdateTransactionsParamsBuilder<'a> {
     pub async fn send(self) -> Result<models::SaveTransactionsResponseData> {
         let params = self.build().wrap_err("failed to build parameters")?;
-        Ok(
+        let num_transactions = params.transactions.len();
+        let response =
             *transactions_api::update_transactions(&params.client.config, params.into_api())
                 .await
                 .wrap_err("failed to create transactions")?
-                .data,
-        )
+                .data;
+
+        if num_transactions != response.transaction_ids.len() {
+            return Err(eyre!(
+                "failed to update {} transactions",
+                num_transactions - response.transaction_ids.len()
+            ));
+        }
+
+        if let Some(duplicate_import_ids) = &response.duplicate_import_ids
+            && !duplicate_import_ids.is_empty()
+        {
+            return Err(eyre!("this should never happen",));
+        }
+
+        Ok(response)
     }
 }
 

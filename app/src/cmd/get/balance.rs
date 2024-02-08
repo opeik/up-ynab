@@ -1,3 +1,4 @@
+use fallible_iterator::{FallibleIterator, IteratorExt};
 use tracing::info;
 
 use crate::{
@@ -26,12 +27,11 @@ pub async fn up(config: &Config, args: UpArgs) -> Result<()> {
         .unwrap_or_default()
         .into_iter()
         .map(|x| x.to_transaction(&accounts))
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .filter(|x| x.is_normalized())
-        .collect::<Vec<_>>();
-    let balances = balance::running_balance(&transactions);
+        .transpose_into_fallible()
+        .filter(|x| Ok(x.is_normalized()))
+        .collect::<Vec<_>>()?;
 
+    let balances = balance::running_balance(&transactions);
     for balance in &balances {
         if let Some(since) = args.since
             && balance.transaction.time <= since

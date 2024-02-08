@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use color_eyre::eyre::{ContextCompat, Result};
-use tracing::{error, info};
+use fallible_iterator::{FallibleIterator, IteratorExt};
+use tracing::info;
 use uuid::Uuid;
 
 use crate::{
@@ -31,9 +32,8 @@ pub async fn sync(config: &Config, args: Args) -> Result<()> {
     let budget = run
         .ynab_budgets
         .wrap_err("missing ynab budgets")?
-        .iter()
+        .into_iter()
         .find(|x| x.id == budget_id)
-        .cloned()
         .wrap_err("failed to find budget with id: `{budget_id}`")?;
 
     let accounts = Account::identify(
@@ -56,10 +56,9 @@ pub async fn sync(config: &Config, args: Args) -> Result<()> {
         .unwrap_or_default()
         .into_iter()
         .map(|x| x.to_transaction(&accounts))
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .filter(|x| x.is_normalized())
-        .collect::<Vec<_>>();
+        .transpose_into_fallible()
+        .filter(|x| Ok(x.is_normalized()))
+        .collect::<Vec<_>>()?;
 
     let missing_transactions = find_missing_transactions(&up_transactions, &ynab_transactions);
     let modified_transactions = find_modified_transactions(&up_transactions, &ynab_transactions);
@@ -71,25 +70,18 @@ pub async fn sync(config: &Config, args: Args) -> Result<()> {
         );
 
         if !args.dry_run {
-            let count = missing_transactions.len();
             let new_ynab_transactions = missing_transactions
                 .into_iter()
-                .cloned()
                 .map(|x| x.to_new_ynab())
                 .collect::<Result<Vec<_>>>()?;
 
             // TODO: check equality against returned transactions
-            let response = ynab_client
+            ynab_client
                 .new_transactions()
                 .budget_id(budget_id)
                 .transactions(new_ynab_transactions)
                 .send()
                 .await?;
-
-            let num_failed = count - response.transaction_ids.len();
-            if num_failed != 0 {
-                error!("failed to create {} transactions", num_failed)
-            }
         } else {
             info!("dry run, skipping...");
         }
@@ -104,28 +96,22 @@ pub async fn sync(config: &Config, args: Args) -> Result<()> {
         );
 
         if !args.dry_run {
-            let count = modified_transactions.len();
             let updated_ynab_transactions = modified_transactions
                 .into_iter()
                 .map(|(source, remote)| {
-                    let mut x = source.clone().to_update_ynab()?;
-                    x.id = Some(remote.id.clone());
+                    let mut x = source.to_update_ynab()?;
+                    x.0.id = Some(remote.id.clone());
                     Ok(x)
                 })
                 .collect::<Result<Vec<_>>>()?;
 
             // TODO: check equality against returned transactions
-            let response = ynab_client
+            ynab_client
                 .update_transactions()
                 .budget_id(budget_id)
                 .transactions(updated_ynab_transactions)
                 .send()
                 .await?;
-
-            let num_failed = count - response.transaction_ids.len();
-            if num_failed != 0 {
-                error!("failed to update {} transactions", num_failed)
-            }
         } else {
             info!("dry run, skipping...");
         }
