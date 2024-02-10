@@ -110,7 +110,7 @@ macro_rules! stream_pages_impl {
                 state.data = response
                     .data
                     .into_iter()
-                    .map(|x| $T(x))
+                    .map(|x| $T::new(x))
                     .collect::<Vec<_>>()
                     .into_iter();
                 state.next = response.links.next;

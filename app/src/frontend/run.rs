@@ -55,28 +55,18 @@ impl Run {
     ) -> Result<Self> {
         let mut run = Self::new();
 
-        let up_accounts = cmd::get::account::up(config).await?;
-        run.write_up_accounts(&up_accounts)?;
-        info!("fetched {} up accounts", up_accounts.len());
+        let (up_accounts, up_transactions, ynab_accounts, ynab_transactions, ynab_budgets) = tokio::try_join!(
+            cmd::get::account::up(config),
+            cmd::get::transaction::up(config, cmd::get::transaction::UpArgs { since, until }),
+            cmd::get::account::ynab(config),
+            cmd::get::transaction::ynab(config, cmd::get::transaction::YnabArgs { since }),
+            cmd::get::budget::ynab(config),
+        )?;
 
-        let up_transactions =
-            cmd::get::transaction::up(config, cmd::get::transaction::UpArgs { since, until })
-                .await?;
         run.write_up_transactions(&up_transactions)?;
-        info!("fetched {} up transactions", up_transactions.len());
-
-        let ynab_accounts = cmd::get::account::ynab(config).await?;
         run.write_ynab_accounts(&ynab_accounts)?;
-        info!("fetched {} ynab accounts", up_accounts.len());
-
-        let ynab_transactions =
-            cmd::get::transaction::ynab(config, cmd::get::transaction::YnabArgs { since }).await?;
         run.write_ynab_transactions(&ynab_transactions)?;
-        info!("fetched {} ynab transactions", ynab_transactions.len());
-
-        let ynab_budgets = cmd::get::budget::ynab(config).await?;
         run.write_ynab_budgets(&ynab_budgets)?;
-        info!("fetched {} ynab budgets", ynab_budgets.len());
 
         run.up_accounts = Some(up_accounts);
         run.up_transactions = Some(up_transactions);
@@ -113,7 +103,7 @@ impl Run {
     pub fn write_up_transactions(&self, transactions: &[UpTransaction]) -> Result<()> {
         let path = self.path.join("up_transactions");
         Self::write_entries::<UpTransaction, _, _>(&path, transactions, |x| {
-            PathBuf::from(&format!("{}-{}.json", x.0.attributes.created_at, x.0.id))
+            PathBuf::from(&format!("{}-{}.json", x.attributes.created_at, x.id))
         })?;
         debug!("wrote up transactions to {}", path.to_string_lossy());
         Ok(())
@@ -122,7 +112,7 @@ impl Run {
     pub fn write_up_accounts(&self, accounts: &[UpAccount]) -> Result<()> {
         let path = self.path.join("up_accounts");
         Self::write_entries::<UpAccount, _, _>(&path, accounts, |x| {
-            PathBuf::from(&format!("{}.json", x.0.id))
+            PathBuf::from(&format!("{}.json", x.id))
         })?;
         debug!("wrote up accounts to {}", path.to_string_lossy());
         Ok(())
@@ -131,7 +121,7 @@ impl Run {
     pub fn write_ynab_accounts(&self, accounts: &[YnabAccount]) -> Result<()> {
         let path = self.path.join("ynab_accounts");
         Self::write_entries::<YnabAccount, _, _>(&path, accounts, |x| {
-            PathBuf::from(&format!("{}.json", x.0.id))
+            PathBuf::from(&format!("{}.json", x.id))
         })?;
         debug!("wrote ynab accounts to {}", path.to_string_lossy());
         Ok(())
@@ -140,7 +130,7 @@ impl Run {
     pub fn write_ynab_transactions(&self, transactions: &[YnabTransaction]) -> Result<()> {
         let path = self.path.join("ynab_transactions");
         Self::write_entries::<YnabTransaction, _, _>(&path, transactions, |x| {
-            PathBuf::from(&format!("{}-{}.json", x.0.date, x.0.id))
+            PathBuf::from(&format!("{}-{}.json", x.date, x.id))
         })?;
         debug!("wrote ynab transactions to {}", path.to_string_lossy());
         Ok(())

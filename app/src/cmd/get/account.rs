@@ -19,6 +19,7 @@ pub async fn up(config: &Config) -> Result<Vec<UpAccount>> {
         .await
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
+    info!("fetched {} up accounts", accounts.len());
     Ok(accounts)
 }
 
@@ -31,5 +32,6 @@ pub async fn ynab(config: &Config) -> Result<Vec<YnabAccount>> {
         .as_ref()
         .wrap_err("missing budget id")?;
     let accounts = ynab_client.accounts().budget_id(budget_id).send().await?;
+    info!("fetched {} ynab accounts", accounts.len());
     Ok(accounts)
 }

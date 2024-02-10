@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use color_eyre::eyre::{ContextCompat, Result};
+use color_eyre::eyre::{Context, ContextCompat, Result};
 use fallible_iterator::{FallibleIterator, IteratorExt};
 use tracing::info;
 use uuid::Uuid;
@@ -81,7 +81,8 @@ pub async fn sync(config: &Config, args: Args) -> Result<()> {
                 .budget_id(budget_id)
                 .transactions(new_ynab_transactions)
                 .send()
-                .await?;
+                .await
+                .wrap_err("failed to create ynab transactions")?;
         } else {
             info!("dry run, skipping...");
         }
@@ -98,11 +99,7 @@ pub async fn sync(config: &Config, args: Args) -> Result<()> {
         if !args.dry_run {
             let updated_ynab_transactions = modified_transactions
                 .into_iter()
-                .map(|(source, remote)| {
-                    let mut x = source.to_update_ynab()?;
-                    x.0.id = Some(remote.id.clone());
-                    Ok(x)
-                })
+                .map(|x| x.to_update_ynab())
                 .collect::<Result<Vec<_>>>()?;
 
             // TODO: check equality against returned transactions
@@ -111,7 +108,8 @@ pub async fn sync(config: &Config, args: Args) -> Result<()> {
                 .budget_id(budget_id)
                 .transactions(updated_ynab_transactions)
                 .send()
-                .await?;
+                .await
+                .wrap_err("failed to update ynab transactions")?;
         } else {
             info!("dry run, skipping...");
         }
@@ -130,13 +128,12 @@ fn find_missing_transactions<'a>(
     let source_transactions_by_id = source_transactions
         .iter()
         .map(|x| (x.id.as_str(), x))
-        .collect::<HashMap<&str, &Transaction>>();
+        .collect::<HashMap<_, _>>();
 
     let remote_transactions_by_id = remote_transactions
         .iter()
-        .filter(|x| x.imported_id.is_some())
-        .map(|x| (x.imported_id.as_deref().unwrap(), x))
-        .collect::<HashMap<&str, &Transaction>>();
+        .map(|x| (x.id.as_str(), x))
+        .collect::<HashMap<_, _>>();
 
     let missing_transactions = source_transactions_by_id
         .keys()
@@ -152,23 +149,22 @@ fn find_missing_transactions<'a>(
 fn find_modified_transactions<'a>(
     source_transactions: &'a [Transaction],
     remote_transactions: &'a [Transaction],
-) -> Vec<(&'a Transaction, &'a Transaction)> {
+) -> Vec<&'a Transaction> {
     let source_transactions_by_id = source_transactions
         .iter()
         .map(|x| (x.id.as_str(), x))
-        .collect::<HashMap<&str, &Transaction>>();
+        .collect::<HashMap<_, _>>();
 
     let remote_transactions_by_id = remote_transactions
         .iter()
-        .filter(|x| x.imported_id.is_some())
-        .map(|x| (x.imported_id.as_deref().unwrap(), x))
-        .collect::<HashMap<&str, &Transaction>>();
+        .map(|x| (x.id.as_str(), x))
+        .collect::<HashMap<_, _>>();
 
     let not_eq_transactions = source_transactions_by_id
         .iter()
         .map(|(k, v)| (k, (v, remote_transactions_by_id.get(k))))
-        .filter(|(_, (a, b))| b.map(|b| !a.is_equivalent(b)).unwrap_or_default())
-        .map(|(_, (a, b))| (*a, *b.unwrap()))
+        .filter(|(_, (a, b))| b.map(|b| **a != *b).unwrap_or_default())
+        .map(|(_, (a, _))| *a)
         .collect::<Vec<_>>();
 
     not_eq_transactions

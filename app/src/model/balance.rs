@@ -7,7 +7,7 @@ use money2::Money;
 
 use crate::model::{transaction, Account, Transaction};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct Balance<'a> {
     pub values: BTreeMap<Account, Money>,
     pub transaction: &'a Transaction,

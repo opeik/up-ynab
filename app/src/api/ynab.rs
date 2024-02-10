@@ -1,7 +1,10 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, FixedOffset};
-use color_eyre::eyre::{eyre, Context, Result};
-use itertools::Itertools;
-use tracing::trace;
+use color_eyre::eyre::{eyre, Context, ContextCompat, Result};
+use pretty_assertions::Comparison;
+use tracing::error;
+use uuid::Uuid;
 use ynab_client::{
     apis::{accounts_api, budgets_api, configuration::Configuration, transactions_api},
     models,
@@ -91,6 +94,16 @@ pub struct UpdateTransactionsParams<'a> {
     pub transactions: Vec<UpdateYnabTransaction>,
 }
 
+#[derive(Debug, PartialEq)]
+struct TransactionDiff {
+    import_id: Option<String>,
+    date: Option<String>,
+    amount: Option<i64>,
+    memo: Option<String>,
+    account_id: Option<Uuid>,
+    payee_name: Option<String>,
+}
+
 impl<'a> GetAccountsParams<'a> {
     fn into_api(self) -> accounts_api::GetAccountsParams {
         accounts_api::GetAccountsParams {
@@ -128,7 +141,7 @@ impl<'a> NewTransactionsParams<'a> {
                 transactions: Some(
                     self.transactions
                         .into_iter()
-                        .map(|x| x.0)
+                        .map(|x| x.into_inner())
                         .collect::<Vec<_>>(),
                 ),
             },
@@ -144,7 +157,7 @@ impl<'a> UpdateTransactionsParams<'a> {
                 transactions: self
                     .transactions
                     .into_iter()
-                    .map(|x| x.0)
+                    .map(|x| x.into_inner())
                     .collect::<Vec<_>>(),
             },
         }
@@ -161,7 +174,7 @@ impl<'a> GetAccountsParamsBuilder<'a> {
                 .data
                 .accounts
                 .into_iter()
-                .map(YnabAccount)
+                .map(YnabAccount::new)
                 .collect::<Vec<_>>(),
         )
     }
@@ -190,41 +203,102 @@ impl<'a> GetTransactionsParamsBuilder<'a> {
                 .data
                 .transactions
                 .into_iter()
-                .map(YnabTransaction)
+                .map(YnabTransaction::new)
                 .collect::<Vec<_>>(),
         )
     }
 }
 
+macro_rules! check_response {
+    ($transactions:expr, $response:expr, $msg:expr) => {
+        let msg = $msg;
+        let num_transactions = $transactions.len();
+        if num_transactions != $response.transaction_ids.len() {
+            return Err(eyre!(
+                "failed to {msg} {} transactions",
+                num_transactions - $response.transaction_ids.len()
+            ));
+        }
+
+        if let Some(duplicate_import_ids) = &$response.duplicate_import_ids
+            && !duplicate_import_ids.is_empty()
+        {
+            return Err(eyre!("attempted to {msg} duplicate transactions"));
+        }
+
+        let updated_transactions = $response
+            .transactions
+            .as_ref()
+            .wrap_err("missing transactions in response")?;
+
+        let transactions_by_id = $transactions
+            .iter()
+            .map(|x| {
+                if let Some(Some(import_id)) = &x.import_id {
+                    Ok((import_id.as_str(), x))
+                } else {
+                    Err(eyre!("missing import id"))
+                }
+            })
+            .collect::<Result<HashMap<_, _>>>()?;
+
+        let new_transactions_by_id = updated_transactions
+            .iter()
+            .map(|x| {
+                if let Some(Some(import_id)) = &x.import_id {
+                    Ok((import_id.as_str(), x))
+                } else {
+                    Err(eyre!("missing import id"))
+                }
+            })
+            .collect::<Result<HashMap<_, _>>>()?;
+
+        for (id, transaction) in transactions_by_id {
+            let new_transaction = new_transactions_by_id
+                .get(id)
+                .wrap_err(format!("transaction {id} failed to {msg}"))?;
+
+            // TODO: reduce clones
+            let a = TransactionDiff {
+                import_id: transaction.import_id.clone().flatten(),
+                date: transaction.date.clone(),
+                amount: transaction.amount,
+                memo: transaction.memo.clone().flatten(),
+                account_id: transaction.account_id,
+                payee_name: transaction.payee_name.clone().flatten(),
+            };
+
+            let b = TransactionDiff {
+                import_id: new_transaction.import_id.clone().flatten(),
+                date: Some(new_transaction.date.clone()),
+                account_id: Some(new_transaction.account_id),
+                amount: Some(new_transaction.amount),
+                memo: new_transaction.memo.clone().flatten(),
+                payee_name: new_transaction.payee_name.clone().flatten(),
+            };
+
+            if a != b {
+                // TODO: probably should use a different crate for this
+                error!(
+                    "transaction mismatch in response:\n{}",
+                    Comparison::new(&b, &a)
+                );
+                return Err(eyre!("transaction mismatch in response"));
+            }
+        }
+    };
+}
+
 impl<'a> NewTransactionsParamsBuilder<'a> {
     pub async fn send(self) -> Result<models::SaveTransactionsResponseData> {
         let params = self.build().wrap_err("failed to build parameters")?;
-        let num_transactions = params.transactions.len();
+        let transactions = params.transactions.clone();
         let response =
             *transactions_api::create_transaction(&params.client.config, params.into_api())
                 .await
                 .wrap_err("failed to create transactions")?
                 .data;
-
-        if num_transactions != response.transaction_ids.len() {
-            return Err(eyre!(
-                "failed to create {} transactions",
-                num_transactions - response.transaction_ids.len()
-            ));
-        }
-
-        if let Some(duplicate_import_ids) = &response.duplicate_import_ids
-            && !duplicate_import_ids.is_empty()
-        {
-            return Err(eyre!(
-                "attempted to create transactions with duplicate ids: {}",
-                duplicate_import_ids
-                    .iter()
-                    .map(|x| format!("`{x}`"))
-                    .join(", ")
-            ));
-        }
-
+        check_response!(transactions, response, "create");
         Ok(response)
     }
 }
@@ -232,27 +306,13 @@ impl<'a> NewTransactionsParamsBuilder<'a> {
 impl<'a> UpdateTransactionsParamsBuilder<'a> {
     pub async fn send(self) -> Result<models::SaveTransactionsResponseData> {
         let params = self.build().wrap_err("failed to build parameters")?;
-        trace!("{:?}", params.transactions);
-        let num_transactions = params.transactions.len();
+        let transactions = params.transactions.clone();
         let response =
             *transactions_api::update_transactions(&params.client.config, params.into_api())
                 .await
                 .wrap_err("failed to create transactions")?
                 .data;
-
-        if num_transactions != response.transaction_ids.len() {
-            return Err(eyre!(
-                "failed to update {} transactions",
-                num_transactions - response.transaction_ids.len()
-            ));
-        }
-
-        if let Some(duplicate_import_ids) = &response.duplicate_import_ids
-            && !duplicate_import_ids.is_empty()
-        {
-            return Err(eyre!("this should never happen",));
-        }
-
+        check_response!(transactions, response, "update");
         Ok(response)
     }
 }
