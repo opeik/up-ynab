@@ -124,7 +124,7 @@ impl<'a> GetBudgetsParams<'a> {
 impl<'a> GetTransactionsParams<'a> {
     fn into_api(self) -> transactions_api::GetTransactionsParams {
         transactions_api::GetTransactionsParams {
-            budget_id: self.budget_id.to_owned(),
+            budget_id: self.budget_id.clone(),
             since_date: self.since_date.map(|x| x.to_rfc3339()),
             r#type: self.kind,
             last_knowledge_of_server: self.last_knowledge_of_server,
@@ -141,7 +141,7 @@ impl<'a> NewTransactionsParams<'a> {
                 transactions: Some(
                     self.transactions
                         .into_iter()
-                        .map(|x| x.into_inner())
+                        .map(NewYnabTransaction::into_inner)
                         .collect::<Vec<_>>(),
                 ),
             },
@@ -157,7 +157,7 @@ impl<'a> UpdateTransactionsParams<'a> {
                 transactions: self
                     .transactions
                     .into_iter()
-                    .map(|x| x.into_inner())
+                    .map(UpdateYnabTransaction::into_inner)
                     .collect::<Vec<_>>(),
             },
         }
@@ -318,6 +318,7 @@ impl<'a> UpdateTransactionsParamsBuilder<'a> {
 }
 
 impl Client {
+    #[must_use]
     pub fn new(api_token: &str) -> Self {
         Self {
             config: Configuration {

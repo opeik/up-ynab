@@ -44,8 +44,9 @@ impl Default for Run {
 }
 
 impl Run {
+    #[must_use]
     pub fn new() -> Self {
-        Default::default()
+        Self::default()
     }
 
     pub async fn fetch(

@@ -1,3 +1,13 @@
+#![warn(
+    clippy::suspicious,
+    clippy::complexity,
+    clippy::perf,
+    clippy::style,
+    clippy::pedantic,
+    clippy::unwrap_used
+)]
+#![allow(clippy::missing_errors_doc, clippy::wildcard_imports)]
+
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -18,7 +28,7 @@ use up_ynab::{
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
-    install_tracing();
+    install_tracing()?;
 
     let cli = Cli::parse();
     let config = Figment::new()
@@ -63,18 +73,19 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn install_tracing() {
+fn install_tracing() -> Result<()> {
     use tracing_error::ErrorLayer;
     use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
     let fmt_layer = fmt::layer();
-    let filter_layer = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new("up_ynab=trace"))
-        .unwrap();
+    let filter_layer =
+        EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new("up_ynab=trace"))?;
 
     tracing_subscriber::registry()
         .with(filter_layer)
         .with(fmt_layer)
         .with(ErrorLayer::default())
-        .init();
+        .try_init()?;
+
+    Ok(())
 }

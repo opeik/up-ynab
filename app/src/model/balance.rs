@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fmt, fs::File, path::Path};
 
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{ContextCompat, Result};
 use indoc::{formatdoc, writedoc};
 use itertools::Itertools;
 use money2::Money;
@@ -13,7 +13,8 @@ pub struct Balance<'a> {
     pub transaction: &'a Transaction,
 }
 
-pub fn running_balance(transactions: &[Transaction]) -> Vec<Balance> {
+#[must_use]
+pub fn running_total(transactions: &[Transaction]) -> Vec<Balance> {
     let mut balances = Vec::<Balance>::new();
     let transactions = transactions
         .iter()
@@ -53,11 +54,11 @@ pub fn running_balance(transactions: &[Transaction]) -> Vec<Balance> {
     balances
 }
 
-pub fn write_balance_csv<P: AsRef<Path>>(balances: &[Balance], path: P) -> Result<()> {
+pub fn write_csv<P: AsRef<Path>>(balances: &[Balance], path: P) -> Result<()> {
     let accounts = balances
         .last()
         .cloned()
-        .unwrap()
+        .wrap_err("missing account")?
         .values
         .into_keys()
         .sorted_by(|a, b| Ord::cmp(&a.name, &b.name))
@@ -65,7 +66,7 @@ pub fn write_balance_csv<P: AsRef<Path>>(balances: &[Balance], path: P) -> Resul
     let accounts_str = accounts.iter().map(|x| x.name.clone()).collect::<Vec<_>>();
     let headers = ["time", "id", "amount", "msg", "kind", "to", "from"]
         .into_iter()
-        .map(|x| x.to_owned())
+        .map(ToOwned::to_owned)
         .chain(accounts_str)
         .collect::<Vec<_>>();
 
@@ -100,7 +101,7 @@ pub fn write_balance_csv<P: AsRef<Path>>(balances: &[Balance], path: P) -> Resul
             .into_iter()
             .chain(account_balances.clone())
             .map(|x| match x {
-                None => "".to_string(),
+                None => String::new(),
                 Some(x) => x,
             })
             .collect::<Vec<_>>();
@@ -132,18 +133,19 @@ impl<'a> fmt::Display for Balance<'a> {
         let to = self.transaction.to_name();
         let from = self.transaction.from_name();
 
-        let transaction = match self.transaction.msg.as_deref() {
-            Some(x) => formatdoc! {"
+        let transaction = if let Some(x) = self.transaction.msg.as_deref() {
+            formatdoc! {"
                 • amount: {amount}
                 • kind: {kind}
                 • msg: {x}
                 • {to} →  {from}"
-            },
-            None => formatdoc! {"
+            }
+        } else {
+            formatdoc! {"
                 • amount: {amount}
                 • kind: {kind}
                 • {to} →  {from}"
-            },
+            }
         };
 
         writedoc! {
@@ -170,26 +172,26 @@ mod test {
     use super::*;
     use crate::model::{Account, UpTransaction};
 
-    fn spending_account() -> Account {
-        Account {
+    fn spending_account() -> Result<Account> {
+        Ok(Account {
             name: "Spending".to_owned(),
             up_id: "2be1c9de-7a89-4e8f-8077-f535150b588d".to_owned(),
-            ynab_id: Uuid::from_str("f6ca888b-327a-45d0-9775-830abdaa3a04").unwrap(),
-            ynab_transfer_id: Uuid::from_str("89ddd9ef-2510-4b42-a889-e7a68cae291c").unwrap(),
-        }
+            ynab_id: Uuid::from_str("f6ca888b-327a-45d0-9775-830abdaa3a04")?,
+            ynab_transfer_id: Uuid::from_str("89ddd9ef-2510-4b42-a889-e7a68cae291c")?,
+        })
     }
 
-    fn home_account() -> Account {
-        Account {
+    fn home_account() -> Result<Account> {
+        Ok(Account {
             name: "Home".to_owned(),
             up_id: "328160b1-d7bc-41ee-9d7b-c7da4f2484b0".to_owned(),
-            ynab_id: Uuid::from_str("2b00a77e-9b3c-4277-9c6c-6944f7696705").unwrap(),
-            ynab_transfer_id: Uuid::from_str("f9b0b92f-70f7-4015-b885-4e5807a78a44").unwrap(),
-        }
+            ynab_id: Uuid::from_str("2b00a77e-9b3c-4277-9c6c-6944f7696705")?,
+            ynab_transfer_id: Uuid::from_str("f9b0b92f-70f7-4015-b885-4e5807a78a44")?,
+        })
     }
 
-    fn accounts() -> Vec<Account> {
-        Vec::from([home_account(), spending_account()])
+    fn accounts() -> Result<Vec<Account>> {
+        Ok(Vec::from([home_account()?, spending_account()?]))
     }
 
     fn transactions_from_file<P: AsRef<Path>>(
@@ -209,20 +211,20 @@ mod test {
 
     #[test]
     fn up_round_up_balance() -> Result<()> {
-        let accounts = accounts();
+        let accounts = accounts()?;
         let transactions = transactions_from_file("test/data/up_round_up_balance.json", &accounts)?;
-        let actual = running_balance(&transactions);
+        let actual = running_total(&transactions);
         let expected = Vec::from([
             Balance {
                 values: BTreeMap::from([(
-                    spending_account(),
+                    spending_account()?,
                     Money::new(50_00, 2, Currency::from_str("AUD")?),
                 )]),
                 transaction: &transactions[0],
             },
             Balance {
                 values: BTreeMap::from([(
-                    spending_account(),
+                    spending_account()?,
                     Money::new(20_00, 2, Currency::from_str("AUD")?),
                 )]),
                 transaction: &transactions[1],
@@ -230,11 +232,11 @@ mod test {
             Balance {
                 values: BTreeMap::from([
                     (
-                        spending_account(),
+                        spending_account()?,
                         Money::new(19_00, 2, Currency::from_str("AUD")?),
                     ),
                     (
-                        home_account(),
+                        home_account()?,
                         Money::new(1_00, 2, Currency::from_str("AUD")?),
                     ),
                 ]),
@@ -248,14 +250,14 @@ mod test {
 
     #[test]
     fn up_transfer_balance() -> Result<()> {
-        let accounts = accounts();
+        let accounts = accounts()?;
         let transactions = transactions_from_file("test/data/up_transfer_balance.json", &accounts)?;
 
-        let actual = running_balance(&transactions);
+        let actual = running_total(&transactions);
         let expected = Vec::from([
             Balance {
                 values: BTreeMap::from([(
-                    spending_account(),
+                    spending_account()?,
                     Money::new(90000, 2, Currency::from_str("AUD")?),
                 )]),
                 transaction: &transactions[0],
@@ -263,11 +265,11 @@ mod test {
             Balance {
                 values: BTreeMap::from([
                     (
-                        spending_account(),
+                        spending_account()?,
                         Money::new(40000, 2, Currency::from_str("AUD")?),
                     ),
                     (
-                        home_account(),
+                        home_account()?,
                         Money::new(50000, 2, Currency::from_str("AUD")?),
                     ),
                 ]),
@@ -281,14 +283,14 @@ mod test {
 
     #[test]
     fn up_balance_sussy_round_up() -> Result<()> {
-        let accounts = accounts();
+        let accounts = accounts()?;
         let transactions = transactions_from_file("test/data/up_sussy_round_up.json", &accounts)?;
 
-        let actual = running_balance(&transactions);
+        let actual = running_total(&transactions);
         let expected = Vec::from([
             Balance {
                 values: BTreeMap::from([(
-                    spending_account(),
+                    spending_account()?,
                     Money::new(-33_50, 2, Currency::from_str("AUD")?),
                 )]),
                 transaction: &transactions[0],
@@ -296,11 +298,11 @@ mod test {
             Balance {
                 values: BTreeMap::from([
                     (
-                        spending_account(),
+                        spending_account()?,
                         Money::new(-34_00, 2, Currency::from_str("AUD")?),
                     ),
                     (
-                        home_account(),
+                        home_account()?,
                         Money::new(50, 2, Currency::from_str("AUD")?),
                     ),
                 ]),
@@ -309,11 +311,11 @@ mod test {
             Balance {
                 values: BTreeMap::from([
                     (
-                        spending_account(),
+                        spending_account()?,
                         Money::new(16600, 2, Currency::from_str("AUD")?),
                     ),
                     (
-                        home_account(),
+                        home_account()?,
                         Money::new(-19950, 2, Currency::from_str("AUD")?),
                     ),
                 ]),
@@ -322,11 +324,11 @@ mod test {
             Balance {
                 values: BTreeMap::from([
                     (
-                        spending_account(),
+                        spending_account()?,
                         Money::new(16500, 2, Currency::from_str("AUD")?),
                     ),
                     (
-                        home_account(),
+                        home_account()?,
                         Money::new(-19850, 2, Currency::from_str("AUD")?),
                     ),
                 ]),

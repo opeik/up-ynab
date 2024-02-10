@@ -31,7 +31,7 @@ pub async fn up(config: &Config, args: UpArgs) -> Result<()> {
         .filter(|x| Ok(x.is_normalized()))
         .collect::<Vec<_>>()?;
 
-    let balances = balance::running_balance(&transactions);
+    let balances = balance::running_total(&transactions);
     for balance in &balances {
         if let Some(since) = args.since
             && balance.transaction.timestamp <= since
@@ -50,12 +50,12 @@ pub async fn up(config: &Config, args: UpArgs) -> Result<()> {
 
     if let Some(out_path) = args.out_path {
         info!("writing balance CSV to `{}`", out_path.to_string_lossy());
-        balance::write_balance_csv(&balances, out_path)?;
+        balance::write_csv(&balances, out_path)?;
     }
 
     Ok(())
 }
 
-pub async fn ynab(_config: &Config, _args: YnabArgs) -> Result<()> {
+pub async fn ynab(config: &Config, args: YnabArgs) -> Result<()> {
     unimplemented!()
 }

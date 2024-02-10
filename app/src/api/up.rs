@@ -161,6 +161,7 @@ impl<'a> GetAccountsParamsBuilder<'a> {
 }
 
 impl Client {
+    #[must_use]
     pub fn new(api_token: &str) -> Self {
         Self {
             config: Configuration {

@@ -63,16 +63,20 @@ pub async fn sync(config: &Config, args: Args) -> Result<()> {
     let missing_transactions = find_missing_transactions(&up_transactions, &ynab_transactions);
     let modified_transactions = find_modified_transactions(&up_transactions, &ynab_transactions);
 
-    if !missing_transactions.is_empty() {
+    if missing_transactions.is_empty() {
+        info!("all up transactions exist in ynab!");
+    } else {
         info!(
             "creating {} missing up transactions in ynab...",
             missing_transactions.len()
         );
 
-        if !args.dry_run {
+        if args.dry_run {
+            info!("dry run, skipping...");
+        } else {
             let new_ynab_transactions = missing_transactions
                 .into_iter()
-                .map(|x| x.to_new_ynab())
+                .map(Transaction::to_new_ynab)
                 .collect::<Result<Vec<_>>>()?;
 
             // TODO: check equality against returned transactions
@@ -83,23 +87,23 @@ pub async fn sync(config: &Config, args: Args) -> Result<()> {
                 .send()
                 .await
                 .wrap_err("failed to create ynab transactions")?;
-        } else {
-            info!("dry run, skipping...");
         }
-    } else {
-        info!("all up transactions exist in ynab!")
     }
 
-    if !modified_transactions.is_empty() {
+    if modified_transactions.is_empty() {
+        info!("all up transactions unmodified in ynab!");
+    } else {
         info!(
             "updating {} modified up transactions in ynab...",
             modified_transactions.len()
         );
 
-        if !args.dry_run {
+        if args.dry_run {
+            info!("dry run, skipping...");
+        } else {
             let updated_ynab_transactions = modified_transactions
                 .into_iter()
-                .map(|x| x.to_update_ynab())
+                .map(Transaction::to_update_ynab)
                 .collect::<Result<Vec<_>>>()?;
 
             // TODO: check equality against returned transactions
@@ -110,11 +114,7 @@ pub async fn sync(config: &Config, args: Args) -> Result<()> {
                 .send()
                 .await
                 .wrap_err("failed to update ynab transactions")?;
-        } else {
-            info!("dry run, skipping...");
         }
-    } else {
-        info!("all up transactions unmodified in ynab!")
     }
 
     info!("done!");
@@ -139,7 +139,7 @@ fn find_missing_transactions<'a>(
         .keys()
         .map(|k| (k, remote_transactions_by_id.get(k)))
         .filter(|(_, v)| v.is_none())
-        .map(|(k, _)| source_transactions_by_id.get(k).unwrap())
+        .filter_map(|(k, _)| source_transactions_by_id.get(k))
         .copied()
         .collect::<Vec<_>>();
 

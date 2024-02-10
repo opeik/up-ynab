@@ -1,4 +1,13 @@
 #![feature(let_chains)]
+#![warn(
+    clippy::suspicious,
+    clippy::complexity,
+    clippy::perf,
+    clippy::style,
+    clippy::pedantic,
+    clippy::unwrap_used
+)]
+#![allow(clippy::missing_errors_doc, clippy::wildcard_imports)]
 
 pub mod api;
 pub mod cmd;
